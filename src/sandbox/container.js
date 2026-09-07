@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import { SandboxBackend, emptyIsolationCapabilities } from './kinds.js';
 import { SandboxMode } from '../security/kinds.js';
 import { SecurityEventType } from '../security/kinds.js';
@@ -34,10 +35,19 @@ export function containerProcessEnv(env = {}) {
   return out;
 }
 
-function ensureHostMountWritable(dir) {
-  if (!dir) return;
+function ensureHostMountWritable(dir, depth = 0) {
+  if (!dir || depth > 6) return;
   try { fs.mkdirSync(dir, { recursive: true }); } catch {}
   try { fs.chmodSync(dir, 0o777); } catch {}
+  let entries = [];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) ensureHostMountWritable(full, depth + 1);
+    else {
+      try { fs.chmodSync(full, 0o666); } catch {}
+    }
+  }
 }
 
 function runDocker(bin, args, { timeoutMs = 30000 } = {}) {
