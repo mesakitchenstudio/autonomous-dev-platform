@@ -469,7 +469,7 @@ test('resource limits are configured and enforced', async () => {
   await running;
 
   const memory = await sandbox.execute({
-    argv: ['node', '-e', 'try { const a=[]; for(let i=0;i<120;i++) a.push(Buffer.alloc(1024*1024)); console.log("filled"); process.exit(0); } catch(e) { console.log("limited"); process.exit(2); }'],
+    argv: ['node', '-e', 'try { const a=[]; for(let i=0;i<96;i++) a.push(Buffer.alloc(1024*1024, 1)); console.log("filled"); setTimeout(() => {}, 4000); } catch(e) { console.log("limited"); process.exit(2); }'],
     cwd: workspace,
     timeoutMs: 8000,
     env: { PATH: '/usr/bin:/bin' },
@@ -593,7 +593,7 @@ test('package install uses PACKAGE_REGISTRY_ONLY and stays sandboxed', async () 
     timeoutMs: 120000
   });
   assert.equal(result.sandboxMode, SandboxMode.CONTAINER_HARDENED);
-  assert.equal(result.exitCode, 0);
+  assert.equal(result.exitCode, 0, String(result.stderrPreview || result.stderr || result.stdoutPreview || '').slice(0, 400));
   assert.ok(fs.existsSync(path.join(workspace, 'node_modules', 'is-number')));
 });
 

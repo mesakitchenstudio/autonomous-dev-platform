@@ -21,9 +21,9 @@ export function containerProcessEnv(env = {}) {
   out.TEMP = '/tmp';
   out.NPM_CONFIG_CACHE = '/cache/npm';
   out.npm_config_cache = '/cache/npm';
-  out.NPM_CONFIG_PREFIX = '/workspace';
-  out.npm_config_prefix = '/workspace';
-  out.NPM_CONFIG_USERCONFIG = '/tmp/npmrc';
+  out.NPM_CONFIG_TMP = '/cache';
+  out.npm_config_tmp = '/cache';
+  out.NPM_CONFIG_USERCONFIG = '/cache/npmrc';
   out.NPM_CONFIG_UPDATE_NOTIFIER = 'false';
   delete out.USERPROFILE;
   delete out.HOMEDRIVE;
