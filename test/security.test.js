@@ -21,7 +21,7 @@ import { SandboxBackend } from '../src/sandbox/kinds.js';
 import { assertNetworkAllowed } from '../src/sandbox/network.js';
 import { NetworkMode } from '../src/sandbox/kinds.js';
 import { discoverContainerCapabilities } from '../src/sandbox/discover.js';
-import { containerHardeningFlags } from '../src/sandbox/container.js';
+import { containerHardeningFlags, containerProcessEnv } from '../src/sandbox/container.js';
 import { EncryptedLocalSecretBroker } from '../src/secrets/encrypted-local.js';
 import { VaultSecretBroker } from '../src/secrets/vault.js';
 import { SecretBroker, createSecretBroker, resetSecretLeasesForTests } from '../src/secrets/broker.js';
@@ -83,6 +83,18 @@ test('container hardening flags prohibit privileged escape paths', () => {
   assert.equal(flags.capDrop, 'ALL');
   assert.equal(flags.noNewPrivileges, true);
   assert.equal(flags.user, '1000:1000');
+});
+
+test('container env does not inherit host home or Windows paths', () => {
+  const env = containerProcessEnv({
+    PATH: 'C:\\Windows\\System32',
+    HOME: '/home/runner',
+    USERPROFILE: 'C:\\Users\\runner'
+  });
+  assert.match(env.PATH, /\/usr\/local\/bin/);
+  assert.equal(env.HOME, '/tmp');
+  assert.equal(env.TMPDIR, '/tmp');
+  assert.equal(env.USERPROFILE, undefined);
 });
 
 test('local unsafe sandbox blocks cwd escapes and redacts secrets', async () => {

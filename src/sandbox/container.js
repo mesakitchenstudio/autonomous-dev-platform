@@ -10,6 +10,33 @@ import { imageProfileFor, assertApprovedImage, recordImageDigest } from './image
 import { approvedRootsFor, defaultMounts, validateMounts } from './mounts.js';
 import { ErrorCode, PlatformError, redactSecrets } from '../orchestrator/errors.js';
 
+const CONTAINER_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
+
+export function containerProcessEnv(env = {}) {
+  const out = { ...env };
+  out.PATH = CONTAINER_PATH;
+  out.HOME = '/tmp';
+  out.TMPDIR = '/tmp';
+  out.TMP = '/tmp';
+  out.TEMP = '/tmp';
+  out.NPM_CONFIG_CACHE = '/cache/npm';
+  out.npm_config_cache = '/cache/npm';
+  out.NPM_CONFIG_UPDATE_NOTIFIER = 'false';
+  delete out.USERPROFILE;
+  delete out.HOMEDRIVE;
+  delete out.HOMEPATH;
+  delete out.SYSTEMROOT;
+  delete out.WINDIR;
+  delete out.COMSPEC;
+  return out;
+}
+
+function ensureHostMountWritable(dir) {
+  if (!dir) return;
+  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+  try { fs.chmodSync(dir, 0o777); } catch {}
+}
+
 function runDocker(bin, args, { timeoutMs = 30000 } = {}) {
   const result = spawnSync(bin, args, { encoding: 'utf8', windowsHide: true, timeout: timeoutMs });
   return {
@@ -48,8 +75,8 @@ export class ContainerSandbox {
       '--name', name,
       '--user', '1000:1000',
       '--read-only',
-      '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m',
-      '--tmpfs', '/cache:rw,nosuid,size=256m',
+      '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m,mode=1777',
+      '--tmpfs', '/cache:rw,nosuid,size=256m,mode=1777',
       '--cap-drop', 'ALL',
       '--security-opt', 'no-new-privileges:true',
       '--memory', limits.memory || '1g',
@@ -84,6 +111,9 @@ export class ContainerSandbox {
     this.imageDigest = inspect.ok ? inspect.stdout.trim() : null;
     this.containerName = name;
     this.mounts = mounts;
+    for (const mount of mounts) {
+      if (!mount.readOnly) ensureHostMountWritable(mount.source);
+    }
     this.image = image.image;
     this.networkMode = networkMode || this.policy.networkMode;
     this.prepared = true;
@@ -131,7 +161,7 @@ export class ContainerSandbox {
   } = {}) {
     if (!this.prepared) await this.prepare({ project: { id: projectId }, workspaceRoot: cwd });
     const envArgs = [];
-    for (const [key, value] of Object.entries(env || {})) {
+    for (const [key, value] of Object.entries(containerProcessEnv(env))) {
       if (value == null) continue;
       envArgs.push('-e', `${key}=${value}`);
     }
@@ -239,7 +269,7 @@ export class ContainerSandbox {
         networkMode: request.networkMode || request.networkPolicy
       });
     }
-    const env = { ...(request.env || {}) };
+    const env = containerProcessEnv(request.env || {});
     const hostPort = env.PORT != null ? Number(env.PORT) : null;
     if (Number.isFinite(hostPort) && hostPort > 0) {
       env.HOST = '0.0.0.0';

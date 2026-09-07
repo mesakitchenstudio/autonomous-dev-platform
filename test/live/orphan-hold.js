@@ -10,12 +10,17 @@ if (!workspace) {
 const projectId = '00000000-0000-4000-8000-00000000orph';
 const sandbox = makeSandbox({ projectId });
 await prepareSandbox(sandbox, { workspace, projectId, networkMode: NetworkMode.NONE });
-await sandbox.launch({
-  argv: ['node', '-e', 'setTimeout(() => {}, 120000)'],
-  cwd: workspace,
-  workspaceRoot: workspace,
-  env: { PATH: '/usr/bin:/bin' },
-  networkMode: NetworkMode.NONE
-});
-process.stdout.write(`CONTAINER:${sandbox.containerName}\n`);
-await new Promise(() => {});
+try {
+  await sandbox.launch({
+    argv: ['node', '-e', 'setTimeout(() => {}, 120000)'],
+    cwd: workspace,
+    workspaceRoot: workspace,
+    env: { PATH: '/usr/local/bin:/usr/bin:/bin' },
+    networkMode: NetworkMode.NONE
+  });
+  process.stdout.write(`CONTAINER:${sandbox.containerName}\n`);
+  await new Promise(() => {});
+} catch (error) {
+  process.stderr.write(String(error?.message || error));
+  process.exit(1);
+}

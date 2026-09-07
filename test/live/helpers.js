@@ -60,6 +60,7 @@ export async function waitForInspect(sandbox, timeoutMs = 20000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const inspect = await sandbox.inspect();
+    if (inspect?.State?.Running || inspect?.State?.Status === 'running') return inspect;
     if (inspect?.State) return inspect;
     await new Promise(resolve => setTimeout(resolve, 150));
   }

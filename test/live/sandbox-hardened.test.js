@@ -310,7 +310,7 @@ test('secret broker denies cross-project and control-plane issuance', async () =
 
 test('sandbox stdout is redacted and checkpoint scan blocks secrets', async () => {
   const workspace = tempWorkspace();
-  const planted = 'sk-adp-live-redact-fixture-0001';
+  const planted = 'sk-abcdefghijklmnopqrstuvwxyz1234';
   registerSecretValue(planted);
   const projectId = '00000000-0000-4000-8000-00000000red1';
   const sandbox = makeSandbox({ projectId });
