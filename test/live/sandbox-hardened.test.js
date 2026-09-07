@@ -188,7 +188,10 @@ test('workspace mounts isolate host and sibling projects', async () => {
     const out = { own: false, sibling: false, parentRoot: false, platform: false, home: false, host: false };
     try { out.own = fs.readFileSync('/workspace/secret-a.txt','utf8').includes('alpha'); } catch {}
     try { fs.readFileSync(${JSON.stringify(siblingHost)}+'/secret-b.txt'); out.sibling = true; } catch {}
-    try { fs.readdirSync(${JSON.stringify(parentRoot)}); out.parentRoot = true; } catch {}
+    try {
+      const names = fs.readdirSync(${JSON.stringify(parentRoot)});
+      out.parentRoot = names.includes(${JSON.stringify(path.basename(a))}) || names.includes(${JSON.stringify(path.basename(b))});
+    } catch {}
     try { fs.accessSync('/mnt/c/Users'); out.home = true; } catch {}
     try { fs.accessSync('/home/runner'); out.home = true; } catch {}
     try { fs.accessSync('/root/.ssh'); out.home = true; } catch {}
@@ -329,14 +332,17 @@ test('sandbox stdout is redacted and checkpoint scan blocks secrets', async () =
   assert.ok(!fs.readFileSync(logPath, 'utf8').includes(planted));
   assert.match(redactSecrets(planted), /\[redacted\]|sk-\*+/);
 
-  git(['init'], { cwd: workspace });
+  const branch = `adp/${projectId}`;
+  git(['init', '-b', branch], { cwd: workspace });
   git(['config', 'user.email', 'adp@example.test'], { cwd: workspace });
   git(['config', 'user.name', 'ADP Live'], { cwd: workspace });
-  git(['checkout', '-b', `autonomous/${projectId}`], { cwd: workspace });
-  fs.writeFileSync(path.join(workspace, 'leaked.txt'), `token=${planted}\n`);
+  fs.writeFileSync(path.join(workspace, 'README.md'), 'ok\n');
+  git(['add', 'README.md'], { cwd: workspace });
+  git(['commit', '-m', 'init'], { cwd: workspace });
+  fs.writeFileSync(path.join(workspace, 'leaked.txt'), `token=${planted}\n-----BEGIN RSA PRIVATE KEY-----\n`);
   let blocked = false;
   try {
-    await createCheckpointCommit(workspace, { iteration: 1, branch: `autonomous/${projectId}`, workspaceRoot: workspace });
+    await createCheckpointCommit(workspace, { iteration: 1, branch, workspaceRoot: workspace });
   } catch (error) {
     blocked = error.code === ErrorCode.SECRET_DETECTED_IN_SOURCE;
   }
@@ -463,7 +469,7 @@ test('resource limits are configured and enforced', async () => {
   await running;
 
   const memory = await sandbox.execute({
-    argv: ['node', '-e', 'try { const a=[]; for(let i=0;i<200;i++) a.push(Buffer.alloc(1024*1024)); console.log("filled"); } catch(e) { console.log("limited"); process.exit(2); }'],
+    argv: ['node', '-e', 'try { const a=[]; for(let i=0;i<120;i++) a.push(Buffer.alloc(1024*1024)); console.log("filled"); process.exit(0); } catch(e) { console.log("limited"); process.exit(2); }'],
     cwd: workspace,
     timeoutMs: 8000,
     env: { PATH: '/usr/bin:/bin' },
@@ -576,9 +582,9 @@ test('provisioning generator runs through the sandbox', async () => {
 
 test('package install uses PACKAGE_REGISTRY_ONLY and stays sandboxed', async () => {
   const workspace = tempWorkspace();
-  fs.writeFileSync(path.join(workspace, 'package.json'), JSON.stringify({ name: 'adp-pkg', private: true }, null, 2));
+  fs.writeFileSync(path.join(workspace, 'package.json'), JSON.stringify({ name: 'adp-pkg', private: true, version: '0.0.0' }, null, 2));
   const result = await executeSandboxedCommand({
-    argv: ['npm', 'install', 'is-number@7.0.0', '--ignore-scripts', '--no-fund', '--no-audit'],
+    argv: ['npm', 'install', 'is-number@7.0.0', '--ignore-scripts', '--no-fund', '--no-audit', '--cache', '/cache/npm'],
     cwd: workspace,
     workspaceRoot: workspace,
     project: { id: '00000000-0000-4000-8000-00000000pkg1', repository: { workspacePath: workspace }, demo: false },

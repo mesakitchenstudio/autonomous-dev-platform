@@ -21,6 +21,9 @@ export function containerProcessEnv(env = {}) {
   out.TEMP = '/tmp';
   out.NPM_CONFIG_CACHE = '/cache/npm';
   out.npm_config_cache = '/cache/npm';
+  out.NPM_CONFIG_PREFIX = '/workspace';
+  out.npm_config_prefix = '/workspace';
+  out.NPM_CONFIG_USERCONFIG = '/tmp/npmrc';
   out.NPM_CONFIG_UPDATE_NOTIFIER = 'false';
   delete out.USERPROFILE;
   delete out.HOMEDRIVE;
@@ -80,6 +83,7 @@ export class ContainerSandbox {
       '--cap-drop', 'ALL',
       '--security-opt', 'no-new-privileges:true',
       '--memory', limits.memory || '1g',
+      '--memory-swap', limits.memory || '1g',
       '--cpus', String(limits.cpu || '1'),
       '--pids-limit', String(limits.pids || 256),
       '--label', `adp.sandbox=1`,
