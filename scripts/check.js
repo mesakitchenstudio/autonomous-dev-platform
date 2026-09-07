@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const files = [
   'src/server.js',
@@ -40,5 +42,8 @@ for (const file of files) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-const tests = spawnSync(process.execPath, ['--import', './test/security-env.js', '--test', '--test-concurrency=1', 'test/*.test.js'], { stdio: 'inherit' });
+const testFiles = fs.readdirSync('test')
+  .filter(name => name.endsWith('.test.js'))
+  .map(name => path.join('test', name));
+const tests = spawnSync(process.execPath, ['--import', './test/security-env.js', '--test', '--test-concurrency=1', ...testFiles], { stdio: 'inherit' });
 process.exit(tests.status ?? 1);
