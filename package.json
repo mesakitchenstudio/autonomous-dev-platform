@@ -6,9 +6,31 @@
   "description": "Domain-agnostic AI Council -> Cursor autonomous development orchestrator",
   "scripts": {
     "start": "node src/server.js",
+    "worker": "node src/worker/main.js",
+    "dev": "node scripts/demo.js",
     "demo": "node scripts/demo.js",
-    "test": "node --test",
+    "db": "node scripts/dev-db.js",
+    "migrate": "node scripts/migrate.js",
+    "import-json": "node scripts/import-json.js",
+    "export-project": "node scripts/export-project.js",
+    "test": "node --import ./test/security-env.js --test --test-concurrency=1 test/*.test.js",
+    "test:provisioning-live": "node --test --test-concurrency=1 --test-name-pattern \"live Vite|live Next\" test/provisioning.test.js",
+    "test:postgres": "node scripts/run-postgres-tests.js",
+    "test:runtime": "node --test test/runtime-qa.test.js test/visual-provider.test.js test/capabilities.test.js",
+    "test:sandbox": "node scripts/run-sandbox-tests.js",
+    "setup:browsers": "node scripts/setup-browsers.js",
     "check": "node scripts/check.js"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "^0.2.11",
+    "pg": "^8.23.0",
+    "playwright": "^1.55.0"
+  },
+  "devDependencies": {
+    "embedded-postgres": "^18.4.0-beta.17"
+  }
 }

@@ -12,6 +12,11 @@ test('every declared transition is legal', () => {
 test('representative illegal transitions are rejected', () => {
   const illegal = [
     [ProjectState.CURSOR_EXECUTING, ProjectState.READY_FOR_OWNER_REVIEW],
+    [ProjectState.CURSOR_EXECUTING, ProjectState.COUNCIL_REVIEW],
+    [ProjectState.PLATFORM_VERIFICATION, ProjectState.READY_FOR_OWNER_REVIEW],
+    [ProjectState.RUNTIME_VERIFICATION, ProjectState.READY_FOR_OWNER_REVIEW],
+    [ProjectState.VISUAL_VERIFICATION, ProjectState.READY_FOR_OWNER_REVIEW],
+    [ProjectState.PLATFORM_VERIFICATION, ProjectState.CURSOR_EXECUTING],
     [ProjectState.IDEA_SUBMITTED, ProjectState.READY_FOR_OWNER_REVIEW],
     [ProjectState.SPECIFICATION_READY, ProjectState.READY_FOR_OWNER_REVIEW],
     [ProjectState.COUNCIL_REVIEW, ProjectState.READY_FOR_OWNER_REVIEW],
@@ -35,7 +40,7 @@ test('review can return to cursor', () => {
 
 test('failed retry has explicit recovery targets', () => {
   const targets = legalTargets(ProjectState.FAILED);
-  for (const state of [ProjectState.COUNCIL_DISCOVERY, ProjectState.SPECIFICATION_READY, ProjectState.CURSOR_EXECUTING, ProjectState.COUNCIL_REVIEW, ProjectState.FINAL_VERIFICATION]) {
+  for (const state of [ProjectState.COUNCIL_DISCOVERY, ProjectState.SPECIFICATION_READY, ProjectState.PROJECT_PROVISIONING, ProjectState.CURSOR_EXECUTING, ProjectState.PLATFORM_VERIFICATION, ProjectState.RUNTIME_VERIFICATION, ProjectState.VISUAL_VERIFICATION, ProjectState.COUNCIL_REVIEW, ProjectState.FINAL_VERIFICATION]) {
     assert.ok(targets.includes(state), state);
   }
 });

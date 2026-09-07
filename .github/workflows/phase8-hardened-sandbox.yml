@@ -1,0 +1,91 @@
+name: Phase 8 hardened sandbox
+
+on:
+  workflow_dispatch:
+
+jobs:
+  hardened:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      ADP_LIVE_SANDBOX_TEST: '1'
+      DEMO_MODE: 'false'
+      SECRET_MASTER_KEY: 1111111111111111111111111111111111111111111111111111111111111111
+      OWNER_TOKEN_BOOTSTRAP: adp-ci-owner-token
+      ALLOWED_ORIGINS: http://127.0.0.1:4317,http://localhost:4317
+      PHASE8_REPORT_DIR: artifacts/phase8-ci
+      PHASE8_ENGINE_REPORT: artifacts/phase8-ci/engine.json
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Mask synthetic fixtures
+        run: |
+          echo "::add-mask::$SECRET_MASTER_KEY"
+          echo "::add-mask::$OWNER_TOKEN_BOOTSTRAP"
+
+      - name: Preflight Linux Docker
+        run: node scripts/phase8-ci-preflight.js
+
+      - name: Record engine diagnostics
+        if: always()
+        run: |
+          mkdir -p artifacts/phase8-ci
+          uname -a | tee artifacts/phase8-ci/uname.txt
+          docker version | tee artifacts/phase8-ci/docker-version.txt
+          docker info | sed -E '/Registry|Username|Token|Password/d' | tee artifacts/phase8-ci/docker-info.txt
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium for Phase 6 harness
+        run: npx playwright install --with-deps chromium
+
+      - name: Pull approved sandbox image
+        run: docker pull docker.io/library/node:22-bookworm
+
+      - name: Unit tests
+        run: |
+          npm test
+          node -e "const fs=require('fs');const p='artifacts/phase8-ci/steps.json';const j=JSON.parse(fs.existsSync(p)?fs.readFileSync(p,'utf8'):'{}');j.unit='PASS';fs.mkdirSync('artifacts/phase8-ci',{recursive:true});fs.writeFileSync(p,JSON.stringify(j,null,2));"
+
+      - name: Platform check
+        run: |
+          node scripts/check.js
+          node -e "const fs=require('fs');const p='artifacts/phase8-ci/steps.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.check='PASS';fs.writeFileSync(p,JSON.stringify(j,null,2));"
+
+      - name: PostgreSQL isolation tests
+        run: |
+          npm run test:postgres
+          node -e "const fs=require('fs');const p='artifacts/phase8-ci/steps.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.postgres='PASS';fs.writeFileSync(p,JSON.stringify(j,null,2));"
+
+      - name: Live hardened sandbox
+        run: |
+          ADP_LIVE_SANDBOX_TEST=1 npm run test:sandbox
+          node -e "const fs=require('fs');const p='artifacts/phase8-ci/steps.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.sandbox='PASS';fs.writeFileSync(p,JSON.stringify(j,null,2));"
+
+      - name: Write sanitized report
+        if: always()
+        run: |
+          node -e "const fs=require('fs');const p='artifacts/phase8-ci/steps.json';const j=JSON.parse(fs.existsSync(p)?fs.readFileSync(p,'utf8'):'{}');for (const k of ['unit','check','postgres','sandbox']) { if (!j[k]) j[k]='FAIL'; } fs.mkdirSync('artifacts/phase8-ci',{recursive:true}); fs.writeFileSync(p,JSON.stringify(j,null,2));"
+          node scripts/phase8-ci-report.js
+
+      - name: Upload Phase 8 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-hardened-verification
+          path: artifacts/phase8-ci/
+          if-no-files-found: warn
+
+      - name: Remove leftover ADP test containers
+        if: always()
+        run: |
+          docker ps -aq --filter label=adp.sandbox=1 --filter label=adp.test=1 | xargs -r docker rm -f
+          docker ps -aq --filter name=adp-unrelated- | xargs -r docker rm -f

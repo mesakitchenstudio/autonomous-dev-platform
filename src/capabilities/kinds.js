@@ -1,0 +1,33 @@
+export const WorkerCapability = Object.freeze({
+  WEB_CHROMIUM: 'WEB_CHROMIUM',
+  WEB_FIREFOX: 'WEB_FIREFOX',
+  WEB_WEBKIT: 'WEB_WEBKIT',
+  ANDROID_SDK: 'ANDROID_SDK',
+  ANDROID_EMULATOR: 'ANDROID_EMULATOR',
+  ANDROID_PROJECT_CREATOR: 'ANDROID_PROJECT_CREATOR',
+  IOS_SIMULATOR: 'IOS_SIMULATOR',
+  MACOS: 'MACOS',
+  XCODE: 'XCODE',
+  VISION_REVIEW: 'VISION_REVIEW',
+  NODE: 'NODE',
+  JAVA: 'JAVA',
+  FLUTTER_SDK: 'FLUTTER_SDK',
+  PYTHON: 'PYTHON',
+  RUST_TOOLCHAIN: 'RUST_TOOLCHAIN',
+  GO_TOOLCHAIN: 'GO_TOOLCHAIN',
+  DOTNET_SDK: 'DOTNET_SDK',
+  CONTAINER_SANDBOX: 'CONTAINER_SANDBOX',
+  ROOTLESS_CONTAINER: 'ROOTLESS_CONTAINER',
+  SECCOMP: 'SECCOMP',
+  RESOURCE_LIMITS: 'RESOURCE_LIMITS',
+  NETWORK_POLICY: 'NETWORK_POLICY',
+  SECRET_BROKER_LOCAL: 'SECRET_BROKER_LOCAL',
+  SECRET_BROKER_VAULT: 'SECRET_BROKER_VAULT'
+});
+
+export function workerCanClaim(workerCaps, required) {
+  const needed = Array.isArray(required) ? required : [];
+  if (!needed.length) return true;
+  const have = new Set(workerCaps || []);
+  return needed.every(cap => have.has(cap));
+}

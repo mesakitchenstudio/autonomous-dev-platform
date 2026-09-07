@@ -20,6 +20,17 @@ test('safe-development allows file reads', () => {
   assert.equal(allowed.decision, 'allow');
 });
 
+test('safe-development allows project-local npm test and still denies unknown execute', () => {
+  const npmTest = decidePermission('safe-development', {
+    params: { toolCall: { kind: 'execute', command: 'npm test' }, options: [{ optionId: 'allow-once' }, { optionId: 'reject' }] }
+  });
+  assert.equal(npmTest.decision, 'allow');
+  const bare = decidePermission('safe-development', {
+    params: { toolCall: { kind: 'execute' }, options: [{ optionId: 'allow-once' }, { optionId: 'reject' }] }
+  });
+  assert.equal(bare.decision, 'deny');
+});
+
 test('allow-all exists only as an explicit override', () => {
   const allowed = decidePermission('allow-all', { params: { toolCall: { kind: 'execute' }, options: [{ optionId: 'allow-once' }] } });
   assert.equal(allowed.decision, 'allow');
@@ -33,9 +44,11 @@ test('Council provider API keys are not inherited into Cursor child env', () => 
     GEMINI_API_KEY: 'secret-gemini',
     XAI_API_KEY: 'secret-xai',
     CURSOR_API_KEY: 'cursor-ok',
+    DATABASE_URL: 'postgres://adp:secret@localhost/adp',
     CURSOR_CHILD_ENV_ALLOW: 'OPENAI_API_KEY'
   });
   for (const key of BLOCKED_CURSOR_ENV) assert.equal(env[key], undefined);
+  assert.equal(env.DATABASE_URL, undefined);
   assert.equal(env.CURSOR_API_KEY, 'cursor-ok');
   assert.equal(env.PATH, '/bin');
   assert.doesNotThrow(() => assertNoCouncilSecrets(env));

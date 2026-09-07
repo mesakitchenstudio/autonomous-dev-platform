@@ -1,0 +1,8 @@
+{
+  "name": "phase6-web-responsive-broken",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node ../serve.js"
+  }
+}

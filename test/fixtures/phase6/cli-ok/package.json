@@ -1,0 +1,6 @@
+{
+  "name": "phase6-cli-ok",
+  "private": true,
+  "type": "module",
+  "bin": { "phase6-cli": "./cli.js" }
+}

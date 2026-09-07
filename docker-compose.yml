@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: adp
+      POSTGRES_PASSWORD: adp
+      POSTGRES_DB: adp
+    ports:
+      - "5432:5432"
+    volumes:
+      - adp_pgdata:/var/lib/postgresql/data
+      - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adp -d adp"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  adp_pgdata:

@@ -18,7 +18,7 @@ test('demo launch mechanism does not depend on POSIX env assignment syntax', () 
 
 test('gitignore keeps runtime data and secrets out of version control', () => {
   const ignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
-  for (const line of ['.env', 'data/', 'workspaces/', 'node_modules/']) {
+  for (const line of ['.env', 'data/', 'workspaces/', 'node_modules/', '.pglite/', '.adp-secrets/']) {
     assert.ok(ignore.includes(line), `missing ${line}`);
   }
   assert.ok(ignore.includes('!.env.example'));

@@ -1,0 +1,8 @@
+{
+  "name": "phase6-web-a11y-broken",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node ../serve.js"
+  }
+}

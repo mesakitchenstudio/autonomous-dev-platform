@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Broken Visual</title>
+  <style>
+    #save { position: absolute; left: -400px; width: 200px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Recipe Box</h1>
+    <button id="save" type="button">Save favorite</button>
+    <p id="status">Ready</p>
+  </main>
+  <script>
+    document.getElementById('save').onclick = () => {
+      document.getElementById('status').textContent = 'Saved Tomato soup';
+    };
+  </script>
+</body>
+</html>

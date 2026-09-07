@@ -3,23 +3,28 @@ import assert from 'node:assert/strict';
 import { withTimeout } from '../src/orchestrator/timeout.js';
 import { ErrorCode } from '../src/orchestrator/errors.js';
 import { Council } from '../src/council/council.js';
+import { MockProvider } from '../src/providers/mock.js';
 import { CursorCloudClient } from '../src/cursor/cloud-client.js';
 import { tempStore, orchestratorFor, FakeCursor, FakeCouncil } from './helpers.js';
 import { ProjectState } from '../src/orchestrator/states.js';
 
+const noRetry = { maxRetries: 0, sleep: async () => {}, random: () => 0 };
+
 test('provider timeout rejects hanging council members', async () => {
-  const hanging = { name: 'openai', async complete() { await new Promise(() => {}); } };
-  const council = new Council([hanging], 'openai', { timeoutMs: 40 });
+  const hanging = { name: 'openai', model: 'm', async complete() { await new Promise(() => {}); } };
+  const council = new Council([hanging], 'openai', { timeoutMs: 40, minResponses: 1, retryPolicy: noRetry });
   await assert.rejects(() => council.discover('idea'), err => err.code === ErrorCode.ALL_PROVIDERS_FAILED || err.code === ErrorCode.CHAIR_FAILURE || err.code === ErrorCode.PROVIDER_TIMEOUT);
 });
 
 test('chair timeout cannot silently continue', async () => {
-  const member = { name: 'openai', async complete({ prompt }) { return JSON.stringify({ perspective: 'ok' }); } };
-  const hangingChair = { name: 'anthropic', async complete({ prompt }) {
-    if (prompt.includes('CHAIR_SYNTHESIS')) await new Promise(() => {});
-    return JSON.stringify({ perspective: 'ok' });
-  } };
-  const council = new Council([member, hangingChair], 'anthropic', { timeoutMs: 40 });
+  const openai = new MockProvider('openai');
+  const anthropic = new MockProvider('anthropic');
+  const original = anthropic.complete.bind(anthropic);
+  anthropic.complete = async request => {
+    if (request.prompt.includes('CHAIR_SYNTHESIS')) await new Promise(() => {});
+    return original(request);
+  };
+  const council = new Council([openai, anthropic], 'anthropic', { timeoutMs: 40, minResponses: 2, retryPolicy: noRetry });
   await assert.rejects(() => council.discover('idea'), err => err.code === ErrorCode.CHAIR_FAILURE);
 });
 

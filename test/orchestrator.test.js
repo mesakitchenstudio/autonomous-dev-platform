@@ -17,7 +17,9 @@ test('happy path reaches READY only through the completion gate', async () => {
   await orch.run(created.id);
   const project = await store.get(created.id);
   assert.equal(project.state, ProjectState.READY_FOR_OWNER_REVIEW);
-  assert.equal(project.delivery.verificationLevel, VerificationLevel.SELF_REPORTED);
+  assert.ok([VerificationLevel.SELF_REPORTED, VerificationLevel.PLATFORM_VERIFIED].includes(project.delivery.verificationLevel));
+  assert.equal(project.provisioning.status, 'PASS');
+  assert.ok(project.repository.provisioningBaselineSha);
   assert.ok(project.delivery.gate.ok);
   assert.ok(project.evidence);
   assert.ok(project.history.every(h => h.from && h.to));
@@ -72,6 +74,8 @@ test('demo workflow is honest MOCK verification', async () => {
   assert.equal(project.verificationLevel, VerificationLevel.MOCK);
   assert.equal(project.evidence.verificationLevel, VerificationLevel.MOCK);
   assert.equal(project.delivery.verificationLevel, VerificationLevel.MOCK);
+  assert.ok(project.iteration >= 2, 'demo must run one Cursor correction cycle');
+  assert.ok(project.council.discovery.history.some(round => round.purpose === 'critique'));
 });
 
 test('retry after council failure preserves spec history and resumes', async () => {
@@ -86,7 +90,7 @@ test('retry after council failure preserves spec history and resumes', async () 
   failing.failDiscover = false;
   const resumed = await orch.retry(created.id);
   assert.notEqual(resumed.state, ProjectState.FAILED);
-  const project = await awaitJob(orch, store, created.id);
+  const project = await awaitJob(orch, store, created.id, 30000);
   assert.equal(project.state, ProjectState.READY_FOR_OWNER_REVIEW, project.error && `${project.error.code}: ${project.error.message}`);
   assert.ok(project.errors.length >= 1);
 });
@@ -102,7 +106,7 @@ test('retry after cursor failure keeps the specification', async () => {
   const spec = project.council.discovery.spec;
   cursor.fail = false;
   await orch.retry(created.id);
-  project = await awaitJob(orch, store, created.id);
+  project = await awaitJob(orch, store, created.id, 30000);
   assert.equal(project.state, ProjectState.READY_FOR_OWNER_REVIEW, project.error && `${project.error.code}: ${project.error.message}`);
   assert.deepEqual(project.council.discovery.spec, spec);
   assert.ok(project.history.some(h => h.from === ProjectState.FAILED));

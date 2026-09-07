@@ -4,6 +4,11 @@
 
 data/
 workspaces/
+artifacts/
+.pglite/
+.adp-secrets/
+vite-project/
+test/postgres/.last-evidence.json
 
 node_modules/
 npm-debug.log*

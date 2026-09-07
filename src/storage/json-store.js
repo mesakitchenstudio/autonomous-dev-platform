@@ -16,6 +16,14 @@ export function createProjectRecord({ idea, projectPath, demo = false, id } = {}
     history: [],
     council: {},
     cursorRuns: [],
+    verificationRuns: [],
+    runtimeRuns: [],
+    visualReviewRuns: [],
+    provisioningRuns: [],
+    provisioningPlan: null,
+    provisioning: null,
+    components: [],
+    artifacts: [],
     operations: [],
     checkpoint: emptyCheckpoint(),
     activePrompt: null,
@@ -25,7 +33,12 @@ export function createProjectRecord({ idea, projectPath, demo = false, id } = {}
     delivery: null,
     error: null,
     errors: [],
-    demo: Boolean(demo)
+    demo: Boolean(demo),
+    repository: null,
+    securityPolicy: null,
+    sandboxRuns: [],
+    securityFindings: [],
+    secretReferences: []
   };
 }
 
@@ -40,9 +53,16 @@ export class JsonStore {
   }
   async save(project) {
     project.updatedAt = new Date().toISOString();
-    const temp = `${this.file(project.id)}.tmp`;
+    const dest = this.file(project.id);
+    const temp = `${dest}.${crypto.randomUUID()}.tmp`;
     await fs.writeFile(temp, JSON.stringify(project, null, 2));
-    await fs.rename(temp, this.file(project.id));
+    try {
+      await fs.rename(temp, dest);
+    } catch (error) {
+      if (!['EPERM', 'EEXIST', 'EACCES'].includes(error.code)) throw error;
+      await fs.copyFile(temp, dest);
+      await fs.unlink(temp).catch(() => {});
+    }
     return project;
   }
   async readJson(filePath) {

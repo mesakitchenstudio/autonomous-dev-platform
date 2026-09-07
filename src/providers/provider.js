@@ -3,12 +3,22 @@ import { abortSignal, mapAbortToTimeout } from '../orchestrator/timeout.js';
 import { intEnv } from '../util/env.js';
 
 export class ModelProvider {
-  constructor({ name, model, timeoutMs }) {
+  constructor({ name, model, timeoutMs, supportsVision = false }) {
     this.name = name;
     this.model = model;
     this.timeoutMs = timeoutMs ?? intEnv('AI_REQUEST_TIMEOUT_MS', 120000);
+    this.supportsVision = Boolean(supportsVision);
+  }
+  withModel(model) {
+    return Object.assign(Object.create(Object.getPrototypeOf(this)), this, { model });
   }
   async complete(_request) { throw new Error('Not implemented'); }
+}
+
+export function unwrapComplete(result) {
+  if (typeof result === 'string') return { text: result, usage: null };
+  if (result && typeof result.text === 'string') return { text: result.text, usage: result.usage || null };
+  return { text: String(result ?? ''), usage: result?.usage || null };
 }
 
 export async function providerFetch(url, options, timeoutMs) {

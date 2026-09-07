@@ -4,7 +4,11 @@ export const ProjectState = Object.freeze({
   IDEA_SUBMITTED: 'IDEA_SUBMITTED',
   COUNCIL_DISCOVERY: 'COUNCIL_DISCOVERY',
   SPECIFICATION_READY: 'SPECIFICATION_READY',
+  PROJECT_PROVISIONING: 'PROJECT_PROVISIONING',
   CURSOR_EXECUTING: 'CURSOR_EXECUTING',
+  PLATFORM_VERIFICATION: 'PLATFORM_VERIFICATION',
+  RUNTIME_VERIFICATION: 'RUNTIME_VERIFICATION',
+  VISUAL_VERIFICATION: 'VISUAL_VERIFICATION',
   COUNCIL_REVIEW: 'COUNCIL_REVIEW',
   FINAL_VERIFICATION: 'FINAL_VERIFICATION',
   READY_FOR_OWNER_REVIEW: 'READY_FOR_OWNER_REVIEW',
@@ -16,7 +20,11 @@ export const ACTIVE_WORKFLOW_STATES = Object.freeze([
   ProjectState.IDEA_SUBMITTED,
   ProjectState.COUNCIL_DISCOVERY,
   ProjectState.SPECIFICATION_READY,
+  ProjectState.PROJECT_PROVISIONING,
   ProjectState.CURSOR_EXECUTING,
+  ProjectState.PLATFORM_VERIFICATION,
+  ProjectState.RUNTIME_VERIFICATION,
+  ProjectState.VISUAL_VERIFICATION,
   ProjectState.COUNCIL_REVIEW,
   ProjectState.FINAL_VERIFICATION
 ]);
@@ -29,8 +37,20 @@ export const OWNER_TERMINAL_STATES = Object.freeze([
 const transitions = new Map([
   [ProjectState.IDEA_SUBMITTED, new Set([ProjectState.COUNCIL_DISCOVERY, ProjectState.FAILED])],
   [ProjectState.COUNCIL_DISCOVERY, new Set([ProjectState.SPECIFICATION_READY, ProjectState.FAILED])],
-  [ProjectState.SPECIFICATION_READY, new Set([ProjectState.CURSOR_EXECUTING, ProjectState.FAILED])],
-  [ProjectState.CURSOR_EXECUTING, new Set([ProjectState.COUNCIL_REVIEW, ProjectState.FAILED])],
+  [ProjectState.SPECIFICATION_READY, new Set([ProjectState.PROJECT_PROVISIONING, ProjectState.CURSOR_EXECUTING, ProjectState.FAILED])],
+  [ProjectState.PROJECT_PROVISIONING, new Set([ProjectState.CURSOR_EXECUTING, ProjectState.FAILED])],
+  [ProjectState.CURSOR_EXECUTING, new Set([ProjectState.PLATFORM_VERIFICATION, ProjectState.FAILED])],
+  [ProjectState.PLATFORM_VERIFICATION, new Set([
+    ProjectState.RUNTIME_VERIFICATION,
+    ProjectState.COUNCIL_REVIEW,
+    ProjectState.FAILED
+  ])],
+  [ProjectState.RUNTIME_VERIFICATION, new Set([
+    ProjectState.VISUAL_VERIFICATION,
+    ProjectState.COUNCIL_REVIEW,
+    ProjectState.FAILED
+  ])],
+  [ProjectState.VISUAL_VERIFICATION, new Set([ProjectState.COUNCIL_REVIEW, ProjectState.FAILED])],
   [ProjectState.COUNCIL_REVIEW, new Set([ProjectState.CURSOR_EXECUTING, ProjectState.SPECIFICATION_READY, ProjectState.FINAL_VERIFICATION, ProjectState.FAILED])],
   [ProjectState.FINAL_VERIFICATION, new Set([ProjectState.CURSOR_EXECUTING, ProjectState.SPECIFICATION_READY, ProjectState.READY_FOR_OWNER_REVIEW, ProjectState.FAILED])],
   [ProjectState.READY_FOR_OWNER_REVIEW, new Set([ProjectState.OWNER_APPROVED, ProjectState.COUNCIL_DISCOVERY])],
@@ -40,6 +60,10 @@ const transitions = new Map([
     ProjectState.COUNCIL_DISCOVERY,
     ProjectState.SPECIFICATION_READY,
     ProjectState.CURSOR_EXECUTING,
+    ProjectState.PROJECT_PROVISIONING,
+    ProjectState.PLATFORM_VERIFICATION,
+    ProjectState.RUNTIME_VERIFICATION,
+    ProjectState.VISUAL_VERIFICATION,
     ProjectState.COUNCIL_REVIEW,
     ProjectState.FINAL_VERIFICATION
   ])]

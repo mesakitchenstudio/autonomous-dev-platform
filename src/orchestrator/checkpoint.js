@@ -9,7 +9,11 @@ export const OperationStatus = Object.freeze({
 
 export const OperationType = Object.freeze({
   DISCOVERY: 'council_discovery',
+  PROJECT_PROVISIONING: 'project_provisioning',
   CURSOR: 'cursor_execution',
+  PLATFORM_VERIFICATION: 'platform_verification',
+  RUNTIME_VERIFICATION: 'runtime_verification',
+  VISUAL_VERIFICATION: 'visual_verification',
   REVIEW: 'council_review',
   FINAL: 'final_verification'
 });

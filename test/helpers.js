@@ -1,3 +1,4 @@
+import './security-env.js';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
@@ -25,8 +26,12 @@ export async function waitFor(store, id, predicate, timeoutMs = 3000) {
   const start = Date.now();
   let project;
   while (Date.now() - start < timeoutMs) {
-    project = await store.get(id);
-    if (predicate(project)) return project;
+    try {
+      project = await store.get(id);
+      if (predicate(project)) return project;
+    } catch (error) {
+      if (!(error instanceof SyntaxError) && error?.code !== 'ENOENT') throw error;
+    }
     await new Promise(r => setTimeout(r, 15));
   }
   throw new Error(`Timed out waiting for project condition (state=${project?.state})`);
@@ -36,9 +41,19 @@ export function specFixture() {
   return {
     productName: 'Test App',
     productSummary: 'Test',
-    projectType: 'web',
+    projectType: 'backend',
     requirements: ['Do the thing'],
-    architecture: ['Keep it simple'],
+    architecture: { platform: 'SERVER', technology: ['node'], components: ['api'] },
+    architectureChoice: {
+      category: 'BACKEND',
+      platform: 'SERVER',
+      framework: 'NODE_BACKEND',
+      language: 'JAVASCRIPT',
+      ui: false,
+      backendRequired: true,
+      databaseRequired: false,
+      rationale: 'Unit-test default uses the versioned Node backend template.'
+    },
     workPackages: [{ id: 'w1', title: 'Implement', acceptanceCriteria: ['Works'] }],
     cursorPrompt: 'Implement the test application completely.',
     ownerAssumptions: []
@@ -89,6 +104,27 @@ export class FakeCouncil {
     this.finalCalls += 1;
     return finalComplete(this.finalDecision);
   }
+  async resolveArchitecture() {
+    return {
+      category: 'BACKEND',
+      platform: 'SERVER',
+      framework: 'NODE_BACKEND',
+      language: 'JAVASCRIPT',
+      ui: false,
+      backendRequired: true,
+      databaseRequired: false,
+      rationale: 'Test architecture resolution stays on the platform Node template.'
+    };
+  }
+  async visualReview() {
+    return {
+      reviewers: [],
+      findings: [],
+      chair: { provider: 'fake', decision: { decision: 'COMPLETE', blockingFindings: [], summary: 'ok' } },
+      decision: { decision: 'COMPLETE', blockingFindings: [], summary: 'ok' },
+      usage: []
+    };
+  }
 }
 
 export class FakeCursor {
@@ -117,7 +153,7 @@ export class FakeCursor {
 
 export class FakeWorkspace {
   async ensure(project) {
-    return project.projectPath || '/tmp/fake-workspace';
+    return project.repository?.workspacePath || project.projectPath || '/tmp/fake-workspace';
   }
 }
 
@@ -138,6 +174,26 @@ export async function seedProject(store, overrides = {}) {
   Object.assign(project, overrides);
   await store.save(project);
   return project;
+}
+
+export function verificationNotApplicable(iteration = 1) {
+  return {
+    id: `verify-${iteration}`,
+    iteration,
+    status: 'PASS',
+    checkpointSha: 'none',
+    completedAt: new Date().toISOString(),
+    policy: {
+      build: 'NOT_APPLICABLE',
+      tests: 'NOT_APPLICABLE',
+      lint: 'NOT_APPLICABLE',
+      staticAnalysis: 'NOT_APPLICABLE',
+      security: 'OPTIONAL'
+    },
+    steps: [],
+    blockingFailures: [],
+    problems: []
+  };
 }
 
 export function readyProjectShape() {

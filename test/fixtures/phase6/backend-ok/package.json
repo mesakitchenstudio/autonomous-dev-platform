@@ -1,0 +1,8 @@
+{
+  "name": "phase6-backend-ok",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

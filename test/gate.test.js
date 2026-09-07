@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { canEnterOwnerReview } from '../src/orchestrator/gate.js';
-import { specFixture, createEvidence, EvidenceStatus, EvidenceProvenance, VerificationLevel, reviewComplete, finalComplete } from './helpers.js';
+import { specFixture, createEvidence, EvidenceStatus, EvidenceProvenance, VerificationLevel, reviewComplete, finalComplete, verificationNotApplicable } from './helpers.js';
 
 function baseProject(overrides = {}) {
   return {
@@ -16,9 +16,15 @@ function baseProject(overrides = {}) {
       iteration: 1,
       evidence: createEvidence({
         verificationLevel: VerificationLevel.SELF_REPORTED,
-        execution: { status: EvidenceStatus.PASS, provenance: EvidenceProvenance.CURSOR_REPORTED }
+        execution: { status: EvidenceStatus.PASS, provenance: EvidenceProvenance.CURSOR_REPORTED },
+        build: { status: EvidenceStatus.NOT_APPLICABLE, provenance: EvidenceProvenance.PLATFORM_VERIFIED },
+        tests: { status: EvidenceStatus.NOT_APPLICABLE, provenance: EvidenceProvenance.PLATFORM_VERIFIED }
       })
     }],
+    verificationRuns: [verificationNotApplicable(1)],
+    projectPath: '/repo',
+    repository: { repositoryType: 'EXISTING_LOCAL' },
+    provisioning: { status: 'NOT_APPLICABLE' },
     ...overrides
   };
 }
@@ -78,6 +84,54 @@ test('valid Phase-1 evidence plus Council decisions permits READY', () => {
   const gate = canEnterOwnerReview(baseProject());
   assert.equal(gate.ok, true);
   assert.equal(gate.verificationLevel, VerificationLevel.SELF_REPORTED);
+});
+
+test('required platform FAIL and NOT_RUN block READY', () => {
+  const failed = baseProject({
+    evidence: createEvidence({
+      verificationLevel: VerificationLevel.PLATFORM_VERIFIED,
+      execution: { status: EvidenceStatus.PASS, provenance: EvidenceProvenance.CURSOR_REPORTED },
+      build: { status: EvidenceStatus.FAIL, provenance: EvidenceProvenance.PLATFORM_VERIFIED },
+      tests: { status: EvidenceStatus.PASS, provenance: EvidenceProvenance.PLATFORM_VERIFIED }
+    }),
+    verificationRuns: [{
+      ...verificationNotApplicable(1),
+      policy: { build: 'REQUIRED', tests: 'REQUIRED', lint: 'OPTIONAL', staticAnalysis: 'NOT_APPLICABLE', security: 'OPTIONAL' },
+      status: 'FAIL'
+    }]
+  });
+  failed.cursorRuns[0].evidence = failed.evidence;
+  const failGate = canEnterOwnerReview(failed);
+  assert.equal(failGate.ok, false);
+  assert.ok(failGate.reasons.includes('required_build_failed'));
+
+  const missing = baseProject({ verificationRuns: [] });
+  const missingGate = canEnterOwnerReview(missing);
+  assert.equal(missingGate.ok, false);
+  assert.ok(missingGate.reasons.includes('required_verification_not_run'));
+});
+
+test('Chair cannot override required verification failure', () => {
+  const project = baseProject({
+    council: {
+      discovery: { spec: specFixture() },
+      review1: reviewComplete('COMPLETE'),
+      final: finalComplete('COMPLETE')
+    }
+  });
+  project.evidence = createEvidence({
+    verificationLevel: VerificationLevel.PLATFORM_VERIFIED,
+    execution: { status: EvidenceStatus.PASS, provenance: EvidenceProvenance.CURSOR_REPORTED },
+    tests: { status: EvidenceStatus.NOT_RUN, provenance: EvidenceProvenance.PLATFORM_VERIFIED }
+  });
+  project.cursorRuns[0].evidence = project.evidence;
+  project.verificationRuns = [{
+    ...verificationNotApplicable(1),
+    policy: { build: 'NOT_APPLICABLE', tests: 'REQUIRED', lint: 'OPTIONAL', staticAnalysis: 'NOT_APPLICABLE', security: 'OPTIONAL' }
+  }];
+  const gate = canEnterOwnerReview(project);
+  assert.equal(gate.ok, false);
+  assert.ok(gate.reasons.includes('required_tests_not_run'));
 });
 
 test('max iterations never produces READY', () => {
