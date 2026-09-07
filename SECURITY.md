@@ -65,13 +65,36 @@ on an isolated non-production Linux host with a real container engine. The suite
 
 **Linux CI:** dispatch `.github/workflows/phase8-hardened-sandbox.yml` (`workflow_dispatch`, `ubuntu-24.04`). That job is the formal live verification path. It requires `ADP_LIVE_SANDBOX_TEST=1`, refuses mocks, and uploads `artifacts/phase8-ci/phase8-hardened-verification.md`.
 
-Hostname-level Docker egress remains `hostnameAllowlistEnforced=false` by design of the first backend. HARDENED still requires container isolation, non-root, cap-drop, no-new-privileges, default seccomp, and no host namespaces. It does **not** currently require DNS hostname enforcement.
+### Measured Linux results (2026-09-07)
+
+Run: [GitHub Actions 34167676992](https://github.com/mesakitchenstudio/autonomous-dev-platform/actions/runs/34167676992) on `ubuntu-24.04`.
+
+| Measurement | Result |
+|---|---|
+| OS | Ubuntu 24.04.4 LTS, kernel 6.17.0-1022-azure |
+| Docker client / server | 28.0.4 / 28.0.4 |
+| Storage / runtime | overlay2, runc, cgroup v2 |
+| `DOCKER_DAEMON_ROOTLESS` | **NO** (rootful GitHub-hosted daemon) |
+| Project container user | **NON_ROOT** (`1000:1000`, CapEff empty) |
+| Privileged | false |
+| Seccomp | enabled, Docker builtin profile, not `unconfined` |
+| Isolation | PASS (no host PID/network/IPC, no docker.sock, cap-drop ALL, no-new-privileges, read-only root) |
+| `hostnameAllowlistEnforced` | **false** |
+| Phase 1–7 regression / `check.js` / PostgreSQL | PASS |
+| `ADP_LIVE_SANDBOX_TEST=1 npm run test:sandbox` | PASS |
+| Formal decision | `PHASE 8 VERIFIED — COMPLETE` |
+
+Rootful daemon + non-root project container is the approved Phase 8 STANDARD/HARDENED shape. Do not call the daemon rootless.
+
+Hostname-level Docker egress remains `hostnameAllowlistEnforced=false` by design of the first backend. HARDENED still requires container isolation, non-root, cap-drop, no-new-privileges, default seccomp, and no host namespaces. It does **not** currently require DNS hostname enforcement. STANDARD default egress is `TEST_LOCAL` (unprivileged bridge + published loopback). HARDENED default egress is `PACKAGE_REGISTRY_ONLY` (same bridge backend; hostname allowlisting is policy-recorded, not Docker-enforced).
 
 Local Linux reproduction (isolated non-production host only):
 
 ```bash
 ADP_LIVE_SANDBOX_TEST=1 ADP_LIVE_SANDBOX_ALLOW_LOCAL=1 npm run test:sandbox
 ```
+
+Expected artifacts: `artifacts/phase8-ci/phase8-hardened-verification.md` and `.json`.
 
 ## Secret broker
 
@@ -117,7 +140,7 @@ Demo mode uses the explicit bootstrap token `adp-demo-owner-token` only when `OW
 - This is not a penetration test of Docker, Linux, or Vault.
 - Kernel exploit detection, image signing, SBOM enforcement, enterprise SSO, and multi-tenant SaaS identity are out of scope.
 - `LOCAL_DEVELOPMENT_UNSAFE` on Windows is a development convenience. It must never be reported as hardened security.
-- Formal Phase 8 completion requires a live hardened container backend test. If that infrastructure is unavailable, Phase 8 remains incomplete.
+- Formal Phase 8 completion was verified on a disposable `ubuntu-24.04` GitHub-hosted runner with a real Docker engine and `ContainerSandbox`. Windows `LOCAL_DEVELOPMENT_UNSAFE` remains a development convenience only.
 
 ## Responsible disclosure
 
