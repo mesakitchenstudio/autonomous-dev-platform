@@ -240,12 +240,16 @@ test('screenshot policy blocks prohibited external review', () => {
 
 test('API authentication requires a hashed owner token', () => {
   resetAuthTokensForTests();
-  bootstrapOwnerToken({ OWNER_TOKEN_BOOTSTRAP: 'adp-test-owner-token' });
+  const token = 'adp-test-owner-token';
+  bootstrapOwnerToken({ OWNER_TOKEN_BOOTSTRAP: token });
   const denied = authenticateRequest({ headers: {}, socket: { remoteAddress: '127.0.0.1' } });
   assert.equal(denied.ok, false);
   const bad = authenticateRequest({ headers: { authorization: 'Bearer nope' }, socket: { remoteAddress: '127.0.0.1' } });
   assert.equal(bad.ok, false);
-  const ok = authenticateRequest({ headers: ownerAuthHeaders(), socket: { remoteAddress: '127.0.0.1' } });
+  const ok = authenticateRequest({
+    headers: { authorization: `Bearer ${token}` },
+    socket: { remoteAddress: '127.0.0.1' }
+  });
   assert.equal(ok.ok, true);
   assert.equal(ok.role, 'OWNER');
   assert.equal(authorize(ok, 'project.create'), true);

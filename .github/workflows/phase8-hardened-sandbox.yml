@@ -10,8 +10,6 @@ jobs:
     env:
       ADP_LIVE_SANDBOX_TEST: '1'
       DEMO_MODE: 'false'
-      SECRET_MASTER_KEY: 1111111111111111111111111111111111111111111111111111111111111111
-      OWNER_TOKEN_BOOTSTRAP: adp-ci-owner-token
       ALLOWED_ORIGINS: http://127.0.0.1:4317,http://localhost:4317
       PHASE8_REPORT_DIR: artifacts/phase8-ci
       PHASE8_ENGINE_REPORT: artifacts/phase8-ci/engine.json
@@ -26,6 +24,9 @@ jobs:
           cache: npm
 
       - name: Mask synthetic fixtures
+        env:
+          SECRET_MASTER_KEY: 1111111111111111111111111111111111111111111111111111111111111111
+          OWNER_TOKEN_BOOTSTRAP: adp-ci-owner-token
         run: |
           echo "::add-mask::$SECRET_MASTER_KEY"
           echo "::add-mask::$OWNER_TOKEN_BOOTSTRAP"
@@ -66,6 +67,10 @@ jobs:
           node -e "const fs=require('fs');const p='artifacts/phase8-ci/steps.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.postgres='PASS';fs.writeFileSync(p,JSON.stringify(j,null,2));"
 
       - name: Live hardened sandbox
+        env:
+          SECRET_MASTER_KEY: 1111111111111111111111111111111111111111111111111111111111111111
+          OWNER_TOKEN_BOOTSTRAP: adp-ci-owner-token
+          SECURITY_PROFILE: HARDENED
         run: |
           ADP_LIVE_SANDBOX_TEST=1 npm run test:sandbox
           node -e "const fs=require('fs');const p='artifacts/phase8-ci/steps.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.sandbox='PASS';fs.writeFileSync(p,JSON.stringify(j,null,2));"
