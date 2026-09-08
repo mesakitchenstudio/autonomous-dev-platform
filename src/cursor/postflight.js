@@ -9,7 +9,7 @@ export async function cursorPostflight({ project, workspacePath, raw, demo }) {
     return {
       git: raw?.git || null,
       evidence: raw?.evidence || null,
-      checkpointSha: null,
+      checkpointSha: raw?.checkpointSha || raw?.git?.checkpointSha || raw?.result?.checkpointSha || null,
       changedFiles: raw?.git?.changedFiles || []
     };
   }

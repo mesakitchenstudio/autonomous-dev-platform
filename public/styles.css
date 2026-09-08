@@ -6,6 +6,7 @@ header{display:flex;justify-content:space-between;gap:30px;align-items:flex-star
 .lede{max-width:720px;color:#67645d;line-height:1.6}
 h1{font-family:Georgia,serif;font-size:clamp(36px,5vw,64px);font-weight:500;line-height:1.05;margin:.2em 0}
 .badge{border:1px solid #d5c8b8;border-radius:99px;padding:8px 12px;font-size:11px;font-weight:800}
+.demo-badge{display:inline-block;border:1px solid #d5c8b8;border-radius:99px;padding:6px 10px;font-size:11px;font-weight:800;letter-spacing:.08em;color:#8b4a32;margin:0}
 .composer,.card,.inbox{background:#fffdfa;border:1px solid #ded7cb;border-radius:20px;padding:24px;box-shadow:0 10px 30px #4a3f3220}
 .composer{display:grid;gap:12px;margin-bottom:36px}
 label{font-weight:800}.small{font-size:12px;margin-top:8px;color:#6b675f}
@@ -15,22 +16,52 @@ button{border:0;border-radius:12px;padding:13px 18px;background:#a45237;color:wh
 button.secondary{background:transparent;color:#5b554c;border:1px solid #d5c8b8}
 button.quiet{background:#efe8dc;color:#3d3933}
 .section-title{display:flex;justify-content:space-between;align-items:center}
-.grid{display:grid;gap:16px}
-.card{display:grid;gap:14px}
-.card h3{margin:0 0 6px;font-family:Georgia,serif;font-size:28px}
+.project-count{margin-left:.5rem;color:#8a8378;font-size:14px;font-weight:600;letter-spacing:0}
+.grid{display:grid;gap:12px}
+.card{display:grid;gap:0;padding:0;overflow:hidden}
+.card-toggle{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px 14px;align-items:start;width:100%;margin:0;padding:18px 20px;border:0;border-radius:0;background:transparent;color:inherit;font:inherit;font-weight:inherit;text-align:left;cursor:pointer}
+.card-toggle:focus-visible{outline:2px solid #a45237;outline-offset:-4px}
+.card-head-main{display:grid;gap:4px;min-width:0}
+.card-title{font-family:Georgia,serif;font-size:22px;font-weight:500;line-height:1.2}
+.card-meta{color:#716c63;font-size:13px;line-height:1.45}
+.card-body{display:grid;gap:14px;padding:0 20px 20px;border-top:1px solid #eee6da}
+.card[data-expanded="0"]{box-shadow:none}
+.card[data-expanded="0"] .card-toggle{padding:16px 20px}
+.chevron{width:1.1em;color:#8a8378;font-size:18px;line-height:1.2}
+.card[data-expanded="0"] .chevron::before{content:"›"}
+.card[data-expanded="1"] .chevron::before{content:"▼";font-size:11px}
+.summary{margin:12px 0 0;color:#4f4b45;line-height:1.55}
 .meta{color:#716c63;font-size:14px;line-height:1.5}
-.status{font-size:12px;font-weight:900;letter-spacing:.08em}
+.status{font-size:11px;font-weight:900;letter-spacing:.08em;padding-top:4px;white-space:nowrap}
 .ready{color:#2e7445}.failed{color:#a23434}.progress{color:#8b4a32}.done{color:#2e7445}
 .headline{font-size:18px;color:#3f3b35}
 .actions{display:flex;flex-wrap:wrap;gap:10px}
-.checks{display:grid;gap:6px;margin:0;padding:0;list-style:none}
-.checks li{color:#3f3b35}
+.verify-grid{display:grid;gap:8px}
+.verify-row{display:grid;grid-template-columns:minmax(120px,180px) 1fr;gap:12px;color:#3f3b35}
+.verify-row span:first-child{color:#5f5b54}
 .shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
 .shots img{width:100%;border-radius:12px;border:1px solid #e7e0d5;background:#eee}
 .limits{color:#5f5b54;margin:0;padding-left:18px}
 details.tech{border-top:1px solid #e7e0d5;padding-top:12px;color:#5f5b54}
 details.tech summary{cursor:pointer;font-weight:800}
+details.brief-details{margin-top:12px}
+details.brief-details summary{cursor:pointer;font-weight:800}
+.brief{white-space:pre-wrap;color:#3f3b35;line-height:1.5}
+.tech-grid{display:grid;gap:8px;margin-top:10px}
+.tech-grid div{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:start}
+.tech-grid span{font-weight:700;color:#5f5b54}
+.tech-grid code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;word-break:break-all;color:#3f3b35}
+.changes-panel{display:grid;gap:10px}
+.open-fallback a{color:#a45237;font-weight:800}
 .inbox{margin-bottom:20px}
 .inbox a{color:#a45237;font-weight:700}
 #error{color:#9a2f2f;margin:0}
-@media(max-width:700px){header{display:block}.badge{display:inline-block;margin-top:10px}.actions{display:grid}}
+@media(max-width:700px){
+  header{display:block}
+  .badge{display:inline-block;margin-top:10px}
+  .actions{display:grid}
+  .card-toggle{grid-template-columns:minmax(0,1fr) auto;padding:16px}
+  .card-toggle .status{grid-column:1;padding-top:0}
+  .card-toggle .chevron{grid-column:2;grid-row:1}
+  .verify-row,.tech-grid div{grid-template-columns:1fr}
+}

@@ -1,9 +1,9 @@
 import crypto from 'node:crypto';
-import { VerificationLevel } from '../orchestrator/evidence.js';
 import { latestProvisioningRun } from '../provision/plan.js';
 import { latestVerificationRun } from '../verify/pipeline.js';
 import { latestRuntimeRun } from '../runtime/pipeline.js';
 import { latestVisualRun } from '../visual/pipeline.js';
+import { collectRealProjectMockViolations, isGitObjectId, isMockCheckpoint, isSyntheticCheckpoint } from '../orchestrator/mock-policy.js';
 
 function latestCursorRun(project) {
   const runs = project?.cursorRuns || [];
@@ -12,14 +12,15 @@ function latestCursorRun(project) {
 
 export function finalCheckpointSha(project) {
   const run = latestCursorRun(project);
-  return run?.checkpointSha
+  const sha = run?.checkpointSha
     || run?.git?.checkpointSha
     || run?.git?.afterSha
     || run?.result?.checkpointSha
     || run?.result?.git?.checkpointSha
-    || (project.demo || run?.evidence?.verificationLevel === VerificationLevel.MOCK
-      ? `mock:${project.id}:${project.iteration || 1}`
-      : `unverified:${project.id}:${run.iteration || project.iteration || 1}`);
+    || null;
+  if (sha) return sha;
+  if (project?.demo) return `mock:${project.id}:${project.iteration || 1}`;
+  return `unverified:${project.id}:${run?.iteration || project?.iteration || 1}`;
 }
 
 export function verificationSetHash(project) {
@@ -46,22 +47,23 @@ export function deliveryIdempotencyKey(project) {
 }
 
 export function validateEvidenceLineage(project, checkpointSha) {
-  const reasons = [];
+  const reasons = [...collectRealProjectMockViolations(project)];
   const spec = project?.council?.discovery?.spec;
   if (!spec?.cursorPrompt) reasons.push('missing_authoritative_spec');
   const provisioning = project.provisioning || latestProvisioningRun(project);
   const demo = Boolean(project.demo);
-  const level = latestCursorRun(project)?.evidence?.verificationLevel || project.verificationLevel;
-  const mock = demo || level === VerificationLevel.MOCK;
-  if (!mock && provisioning?.status === 'PASS') {
+  if (!demo && provisioning?.status === 'PASS') {
     const baseline = provisioning.baselineSha || project.repository?.provisioningBaselineSha;
     if (!baseline) reasons.push('missing_provisioning_baseline');
   }
   if (!checkpointSha) reasons.push('missing_final_checkpoint');
+  if (!demo && (isMockCheckpoint(checkpointSha) || isSyntheticCheckpoint(checkpointSha) || !isGitObjectId(checkpointSha))) {
+    reasons.push('mock_checkpoint_not_allowed_for_real_project');
+  }
   const verify = latestVerificationRun(project, latestCursorRun(project)?.iteration);
   const runtime = latestRuntimeRun(project, latestCursorRun(project)?.iteration);
   const visual = latestVisualRun(project, latestCursorRun(project)?.iteration);
-  if (!mock) {
+  if (!demo) {
     if (verify?.checkpointSha && checkpointSha && verify.checkpointSha !== 'none' && verify.checkpointSha !== checkpointSha) {
       reasons.push('stale_platform_verification');
     }
@@ -79,9 +81,10 @@ export function validateEvidenceLineage(project, checkpointSha) {
     }
   }
   if (!project.council?.final) reasons.push('missing_final_adversarial_review');
+  const unique = [...new Set(reasons)];
   return {
-    ok: reasons.length === 0,
-    reasons,
+    ok: unique.length === 0,
+    reasons: unique,
     chain: {
       idea: Boolean(project.idea),
       spec: Boolean(spec),

@@ -22,7 +22,7 @@ test('partial member failure is acceptable when minimum participation remains', 
     new MockProvider('openai'),
     new MockProvider('gemini'),
     { name: 'anthropic', model: 'm', async complete() { throw new Error('down'); } }
-  ], 'openai', { retryPolicy: noRetry });
+  ], 'openai', { retryPolicy: noRetry, minResponses: 2 });
   const out = await council.discover('idea');
   assert.equal(out.analyses.length, 2);
   assert.ok(out.failures.some(item => item.provider === 'anthropic'));

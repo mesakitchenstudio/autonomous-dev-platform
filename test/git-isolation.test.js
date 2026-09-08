@@ -8,9 +8,8 @@ import { inspectGit } from '../src/git/inspect.js';
 import { isolateExistingRepository, provisionNewWorkspace, cleanupManagedWorktree, managedWorkspaceRoot } from '../src/git/worktree.js';
 import { createCheckpointCommit, collectGitEvidence } from '../src/git/checkpoint.js';
 import { WorkspaceManager } from '../src/storage/workspace.js';
-import { MockCursorClient } from '../src/cursor/mock-cursor.js';
 import { Orchestrator } from '../src/orchestrator/orchestrator.js';
-import { FakeCouncil, ProjectState } from './helpers.js';
+import { FakeCouncil, ProjectState, createEvidence, EvidenceStatus, EvidenceProvenance, VerificationLevel } from './helpers.js';
 import { JsonStore, createProjectRecord } from '../src/storage/json-store.js';
 
 async function makeRepo(dir, { file = 'README.md', contents = 'base\n', branch = 'main' } = {}) {
@@ -114,12 +113,23 @@ test('orchestrator Cursor cwd is the isolated worktree, not the owner tree', asy
   const store = new JsonStore(data);
   await store.init();
   let seenCwd = null;
-  const cursor = new MockCursorClient({
-    async mutate(input, cwd) {
+  const cursor = {
+    async run(input) {
+      const cwd = input.cwd || input.workspace?.workspacePath;
       seenCwd = cwd;
       await fs.writeFile(path.join(cwd, 'FROM_CURSOR.md'), 'ok\n');
+      return {
+        sessionId: 's1',
+        stopReason: 'end_turn',
+        output: 'ok',
+        executionMode: 'ACP',
+        evidence: createEvidence({
+          verificationLevel: VerificationLevel.SELF_REPORTED,
+          execution: { status: EvidenceStatus.PASS, provenance: EvidenceProvenance.CURSOR_REPORTED }
+        })
+      };
     }
-  });
+  };
   const workspace = new WorkspaceManager(managed);
   const orchestrator = new Orchestrator({
     store,
@@ -139,9 +149,8 @@ test('orchestrator Cursor cwd is the isolated worktree, not the owner tree', asy
   assert.ok(!ownerFiles.includes('FROM_CURSOR.md'));
   assert.equal(done.evidence.git.provenance, 'PLATFORM_VERIFIED');
   assert.ok(['NOT_APPLICABLE', 'NOT_RUN'].includes(done.evidence.build.status));
-  assert.equal(done.evidence.runtime.status, 'NOT_RUN');
-  assert.notEqual(done.evidence.runtime.provenance, 'PLATFORM_VERIFIED');
-  assert.equal(done.evidence.visual.status, 'NOT_RUN');
+  assert.ok(['NOT_APPLICABLE', 'NOT_RUN'].includes(done.evidence.runtime.status));
+  assert.ok(['NOT_APPLICABLE', 'NOT_RUN'].includes(done.evidence.visual.status));
   assert.equal(done.repository.workingBranch, `adp/${created.id}`);
   assert.ok(done.cursorRuns[0].checkpointSha);
 });

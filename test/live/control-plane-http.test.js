@@ -27,10 +27,12 @@ async function waitForHealth(port, timeoutMs = 20000) {
 test('live control-plane HTTP auth, CORS, and sanitized health/ready', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'adp-live-api-'));
   const port = 4800 + Math.floor(Math.random() * 200);
+  const env = { ...process.env };
+  delete env.DATABASE_URL;
   const child = spawn(process.execPath, ['scripts/demo.js'], {
     cwd: root,
     env: {
-      ...process.env,
+      ...env,
       DEMO_MODE: 'true',
       APP_ROLE: 'api',
       OWNER_TOKEN_BOOTSTRAP: TOKEN,

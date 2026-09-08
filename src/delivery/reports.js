@@ -7,8 +7,21 @@ import { latestProvisioningRun } from '../provision/plan.js';
 import { PolicyLevel } from '../verify/kinds.js';
 import { RuntimeStatus } from '../runtime/kinds.js';
 import { ScreenshotClass } from '../security/kinds.js';
+import { demoOwnerJourneys, flattenGuidance, isDemoDelivery } from './demo-app.js';
 
 export function buildVerificationSummary(project) {
+  if (isDemoDelivery(project)) {
+    const demo = { status: 'DEMO', label: 'Demo' };
+    return {
+      build: demo,
+      tests: demo,
+      runtime: demo,
+      journeys: demo,
+      accessibility: demo,
+      visual: demo,
+      security: demo
+    };
+  }
   const evidence = latestCursorRun(project)?.evidence || project.evidence || {};
   const verify = latestVerificationRun(project, latestCursorRun(project)?.iteration);
   const runtime = latestRuntimeRun(project, latestCursorRun(project)?.iteration);
@@ -29,7 +42,7 @@ export function buildOwnerReport(project, { version, checkpointSha, limitations,
   const spec = project.council?.discovery?.spec || {};
   const name = specProductName(spec) || 'Application';
   const cards = buildVerificationSummary(project);
-  const features = asList(spec.requirements || spec.workPackages).slice(0, 8).map(item => typeof item === 'string' ? item : item.title || item.id).filter(Boolean);
+  const features = flattenGuidance(spec.requirements || spec.workPackages).slice(0, 8);
   return [
     `# ${name} is ready for your review`,
     '',
@@ -89,7 +102,7 @@ export function buildVerificationReport(project, lineage) {
 
 export function buildReleaseNotes(project, { version, previous, feedback }) {
   const spec = project.council?.discovery?.spec || {};
-  const features = asList(spec.requirements).slice(0, 6);
+  const features = flattenGuidance(spec.requirements).slice(0, 6);
   const lines = [
     `# Release notes — v${version}`,
     '',
@@ -109,10 +122,17 @@ export function buildReleaseNotes(project, { version, previous, feedback }) {
 }
 
 export function collectKnownLimitations(project) {
+  if (isDemoDelivery(project)) {
+    return ['This delivery uses simulated Council/Cursor execution to demonstrate the autonomous owner workflow. It is not a production-verified application build.'];
+  }
+  return collectTechnicalLimitations(project);
+}
+
+export function collectTechnicalLimitations(project) {
   const out = [];
   const level = latestCursorRun(project)?.evidence?.verificationLevel || project.verificationLevel;
   if (level === VerificationLevel.MOCK || project.demo) {
-    out.push('This delivery used MOCK Council/Cursor verification. It is not a production-verified application build.');
+    out.push('This delivery uses simulated Council/Cursor execution to demonstrate the autonomous owner workflow. It is not a production-verified application build.');
   }
   if (level === VerificationLevel.SELF_REPORTED) {
     out.push('Some evidence is Cursor-reported rather than independently platform-verified.');
@@ -148,17 +168,14 @@ export function selectOwnerScreenshots(project, checkpointSha) {
 }
 
 export function testingGuidance(project) {
+  if (isDemoDelivery(project)) return demoOwnerJourneys(project);
   const runtime = latestRuntimeRun(project, latestCursorRun(project)?.iteration);
   const goals = (runtime?.scenarios || []).filter(item => item.priority === 'critical' || item.status === 'PASS').map(item => item.goal).filter(Boolean);
   if (goals.length) return goals.slice(0, 6);
-  const reqs = asList(project.council?.discovery?.spec?.requirements);
-  return reqs.slice(0, 4).map(item => String(item));
-}
-
-function asList(value) {
-  if (Array.isArray(value)) return value;
-  if (value && typeof value === 'object') return Object.values(value);
-  return [];
+  return flattenGuidance(project.council?.discovery?.spec?.requirements)
+    .map(item => String(item).trim())
+    .filter(Boolean)
+    .slice(0, 6);
 }
 
 export function howToOpen(project) {

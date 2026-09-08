@@ -33,11 +33,15 @@ const files = [
   'src/db/schema-phase9.js',
   'src/delivery/prepare.js',
   'src/notifications/index.js',
-  'src/sandbox/index.js',
-  'src/secrets/broker.js',
-  'src/auth/http.js',
-  'src/security/policy.js',
-  'src/server.js'
+    'src/sandbox/index.js',
+    'src/secrets/broker.js',
+    'src/auth/http.js',
+    'src/security/policy.js',
+    'src/security/mock-backends.js',
+    'src/orchestrator/mock-policy.js',
+    'src/db/run-migrate.js',
+    'src/readiness/live.js',
+    'src/server.js'
 ];
 
 for (const file of files) {

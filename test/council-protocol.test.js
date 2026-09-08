@@ -13,7 +13,11 @@ import { tempStore } from './helpers.js';
 const noRetry = { maxRetries: 0, sleep: async () => {}, random: () => 0 };
 
 function council(providers, chairName = 'openai', extra = {}) {
-  return new Council(providers, chairName, { retryPolicy: noRetry, ...extra });
+  return new Council(providers, chairName, {
+    retryPolicy: noRetry,
+    minResponses: Math.min(2, providers.length),
+    ...extra
+  });
 }
 
 test('Round 1 analyses are independent and do not include other model responses', async () => {

@@ -1,4 +1,4 @@
-import { isCanonicalEvidence, EvidenceStatus, VerificationLevel } from './evidence.js';
+import { isCanonicalEvidence, EvidenceStatus } from './evidence.js';
 import { RepositoryType } from '../git/worktree.js';
 import { PolicyLevel } from '../verify/kinds.js';
 import { isExistingRepositoryProject, latestProvisioningRun } from '../provision/plan.js';
@@ -8,6 +8,10 @@ import { isVisualStale, latestVisualRun } from '../visual/pipeline.js';
 import { RuntimeStatus } from '../runtime/kinds.js';
 import { applySecurityGate } from '../security/gate.js';
 import { currentDelivery, deliveryIsCurrent } from '../delivery/lineage.js';
+import {
+  collectDeterministicVisualViolations,
+  collectRealProjectMockViolations
+} from './mock-policy.js';
 
 export function specProductName(spec) {
   return spec?.productName || spec?.product?.name || null;
@@ -28,7 +32,7 @@ export function reviewForIteration(project, iteration) {
 }
 
 export function canCompleteAutonomousWork(project, { maxIterations = 12 } = {}) {
-  const reasons = [];
+  const reasons = [...collectRealProjectMockViolations(project)];
   if (!hasValidSpec(project)) reasons.push('missing_specification');
 
   const run = latestCursorRun(project);
@@ -93,6 +97,7 @@ export function canCompleteAutonomousWork(project, { maxIterations = 12 } = {}) 
     } else if (visual.status === RuntimeStatus.NOT_RUN || visual.decision === 'NOT_RUN') reasons.push('required_visual_not_run');
     else if (visual.decision === 'CHANGES_REQUIRED' || (visual.blockingFindings || []).length) reasons.push('blocking_visual_finding');
     else if (visual.status === RuntimeStatus.FAIL) reasons.push('required_visual_failed');
+    reasons.push(...collectDeterministicVisualViolations(project, { required: true }));
   }
 
   const review = run ? reviewForIteration(project, run.iteration) : null;
@@ -104,9 +109,10 @@ export function canCompleteAutonomousWork(project, { maxIterations = 12 } = {}) 
   if (project?.error) reasons.push('unresolved_orchestration_error');
   if (Number(project?.iteration) > Number(maxIterations)) reasons.push('iteration_limit_exceeded');
 
+  const unique = [...new Set(reasons)];
   return {
-    ok: reasons.length === 0,
-    reasons,
+    ok: unique.length === 0,
+    reasons: unique,
     verificationLevel: evidence?.verificationLevel || null
   };
 }
@@ -126,32 +132,31 @@ export function canEnterOwnerReview(project, { maxIterations = 12 } = {}) {
     const source = (delivery.artifacts || []).find(item => item.kind === 'SOURCE_ARCHIVE');
     if (!source) reasons.push('missing_source_archive');
   }
+  const unique = [...new Set(reasons)];
   return {
-    ok: reasons.length === 0,
-    reasons,
+    ok: unique.length === 0,
+    reasons: unique,
     verificationLevel: autonomous.verificationLevel
   };
 }
 
-function requiresPlatformVerification(project, evidence) {
+function requiresPlatformVerification(project, _evidence) {
   if (project?.demo) return false;
-  if (evidence?.verificationLevel === VerificationLevel.MOCK) return false;
   return true;
 }
 
-function requiresRuntimeVerification(project, evidence) {
+function requiresRuntimeVerification(project, _evidence) {
   if (project?.demo) return false;
-  if (evidence?.verificationLevel === VerificationLevel.MOCK) return false;
   if (project?.runtimePolicy?.runtime === PolicyLevel.REQUIRED) return true;
   const runtime = latestRuntimeRun(project);
   return runtime?.policy?.runtime === PolicyLevel.REQUIRED;
 }
 
-function requiresVisualVerification(project, evidence) {
+function requiresVisualVerification(project, _evidence) {
   if (project?.demo) return false;
-  if (evidence?.verificationLevel === VerificationLevel.MOCK) return false;
   if (project?.runtimePolicy?.visual === PolicyLevel.REQUIRED) return true;
   const runtime = latestRuntimeRun(project);
   const visual = latestVisualRun(project);
-  return runtime?.policy?.visual === PolicyLevel.REQUIRED || visual?.decision && visual.decision !== 'NOT_APPLICABLE' && runtime?.policy?.visual === PolicyLevel.REQUIRED;
+  return runtime?.policy?.visual === PolicyLevel.REQUIRED
+    || Boolean(visual?.decision && visual.decision !== 'NOT_APPLICABLE' && runtime?.policy?.visual === PolicyLevel.REQUIRED);
 }

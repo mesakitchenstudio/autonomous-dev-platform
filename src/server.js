@@ -15,7 +15,7 @@ import { resolveProjectArtifact } from './security/artifacts.js';
 import { SecurityEventType } from './security/kinds.js';
 import { recordSecurityEvent } from './security/events.js';
 import { cleanupOrphanSandboxes } from './sandbox/cleanup.js';
-import { startReviewSession, expireSessions, stopReviewSession } from './delivery/session.js';
+import { startReviewSession, expireSessions, stopReviewSession, hydrateReviewSession, readReviewFile } from './delivery/session.js';
 import { markNotificationRead } from './notifications/index.js';
 import { ownerDeliveryView } from './delivery/prepare.js';
 import { currentDelivery } from './delivery/lineage.js';
@@ -38,7 +38,7 @@ if (boolEnv('IMPORT_JSON_ON_START', false)) {
 }
 
 const resumed = await orchestrator.recoverOnBoot();
-const worker = (role === 'combined' || role === 'worker') ? new Worker({ store, queue, orchestrator }) : null;
+const worker = queue && (role === 'combined' || role === 'worker') ? new Worker({ store, queue, orchestrator }) : null;
 if (worker && role !== 'worker') await worker.start();
 cleanupOrphanSandboxes().catch(() => {});
 
@@ -101,6 +101,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/ready') {
       try {
+        if (!adapter || !queue) return json(res, 200, { ok: true, engine: runtime.engine });
         await adapter.ready();
         const auth = authenticateRequest(req, { store });
         if (!auth.ok) return json(res, 200, { ok: true, engine: runtime.engine });
@@ -205,12 +206,30 @@ const server = http.createServer(async (req, res) => {
     const session = url.pathname.match(/^\/api\/projects\/([^/]+)\/review-session$/);
     if (req.method === 'POST' && session) {
       if (!requireOwner(req, res, 'project.review')) return;
-      const project = await store.get(session[1]);
-      expireSessions(project);
-      const started = await startReviewSession(project);
-      await store.save(project);
-      recordSecurityEvent(SecurityEventType.OWNER_REVIEW_SESSION_STARTED, { projectId: project.id, sessionId: started.id }, { store });
-      return json(res, 201, started);
+      try {
+        const project = await store.get(session[1]);
+        expireSessions(project);
+        const origin = `http://${req.headers.host || '127.0.0.1'}`;
+        const started = await startReviewSession(project, { publicBaseUrl: origin });
+        await store.save(project);
+        recordSecurityEvent(SecurityEventType.OWNER_REVIEW_SESSION_STARTED, { projectId: project.id, sessionId: started.id }, { store });
+        return json(res, 201, { ...started, url: started.url || started.reviewUrl });
+      } catch (error) {
+        const status = error?.code === ErrorCode.STALE_DELIVERY ? 409 : 500;
+        return json(res, status, { error: error.message || 'Unable to open the review application.', code: error.code });
+      }
+    }
+    const reviewPage = url.pathname.match(/^\/review\/([^/]+)(?:\/(.*))?$/);
+    if (req.method === 'GET' && reviewPage) {
+      const sessionId = reviewPage[1];
+      const projects = await store.list();
+      for (const project of projects) {
+        expireSessions(project);
+        if (hydrateReviewSession(project, sessionId)) break;
+      }
+      const file = await readReviewFile(sessionId, `/${reviewPage[2] || ''}`);
+      res.writeHead(file.status, { 'content-type': file.type || 'text/plain; charset=utf-8' });
+      return res.end(file.body);
     }
     const stopSession = url.pathname.match(/^\/api\/review-sessions\/([^/]+)\/stop$/);
     if (req.method === 'POST' && stopSession) {

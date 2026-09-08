@@ -9,10 +9,11 @@ import { intEnv } from '../util/env.js';
 import { evidenceFromCursorResult } from '../orchestrator/evidence.js';
 
 export class CursorAcpClient {
-  constructor({ bin = 'agent', apiKey, authToken, permissionPolicy, timeoutMs } = {}) {
+  constructor({ bin = 'agent', apiKey, authToken, permissionPolicy, timeoutMs, extraArgs = [] } = {}) {
     this.bin = bin;
     this.apiKey = apiKey;
     this.authToken = authToken;
+    this.extraArgs = extraArgs;
     this.permissionPolicy = resolvePermissionPolicy(permissionPolicy);
     this.timeoutMs = timeoutMs ?? intEnv('CURSOR_REQUEST_TIMEOUT_MS', 600000);
     this.active = null;
@@ -60,11 +61,13 @@ export class CursorAcpClient {
   }
 
   async execute(input, cwd) {
-    const args = [];
+    const args = [...this.extraArgs];
     if (this.apiKey) args.push('--api-key', this.apiKey);
     if (this.authToken) args.push('--auth-token', this.authToken);
     args.push('acp');
     const child = spawn(this.bin, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], env: buildCursorChildEnv(process.env) });
+    await waitForAcpProcess(child, this.bin);
+    child.on('error', () => {});
     const rl = readline.createInterface({ input: child.stdout });
     let id = 1;
     const pending = new Map();
@@ -140,7 +143,17 @@ export class CursorAcpClient {
         clientInfo: { name: 'autonomous-dev-platform', version: '0.1.0' }
       });
       if (!this.apiKey && !this.authToken) {
-        try { await send('authenticate', { methodId: 'cursor_login' }); } catch {}
+        try {
+          await send('authenticate', { methodId: 'cursor_login' });
+        } catch (error) {
+          throw new PlatformError({
+            code: ErrorCode.CURSOR_AUTH_FAILURE,
+            message: 'Cursor ACP authentication is unavailable. Configure CURSOR_API_KEY or CURSOR_AUTH_TOKEN, or complete agent login. The platform will not fall back to MockCursor.',
+            phase: 'CURSOR_EXECUTING',
+            retryable: false,
+            details: { bin: this.bin }
+          });
+        }
       }
       let sessionId = input.sessionId || null;
       let restarted = false;
@@ -201,3 +214,32 @@ export class CursorAcpClient {
 }
 
 export { PermissionPolicy };
+
+function waitForAcpProcess(child, bin) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = fn => (...args) => {
+      if (settled) return;
+      settled = true;
+      child.off('error', onError);
+      child.off('spawn', onSpawn);
+      fn(...args);
+    };
+    const fail = settle(error => {
+      const missing = error?.code === 'ENOENT';
+      reject(new PlatformError({
+        code: missing ? ErrorCode.CURSOR_EXECUTABLE_UNAVAILABLE : ErrorCode.CURSOR_EXECUTION_FAILED,
+        message: missing
+          ? `Cursor ACP executable was not found (${bin}). Install the Cursor agent CLI and set CURSOR_AGENT_BIN if it is not on PATH. The platform will not fall back to MockCursor.`
+          : `Cursor ACP process failed to start (${bin}): ${error?.message || 'unknown error'}`,
+        phase: 'CURSOR_EXECUTING',
+        retryable: false,
+        details: { bin }
+      }));
+    });
+    const onError = error => fail(error);
+    const onSpawn = settle(() => resolve());
+    child.once('error', onError);
+    child.once('spawn', onSpawn);
+  });
+}

@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import pg from 'pg';
 import { PGlite } from '@electric-sql/pglite';
 
@@ -78,7 +80,10 @@ export function createPgPool(connectionString) {
 }
 
 export async function createPGlite(dataDir) {
-  return dataDir ? new PGlite(dataDir) : new PGlite();
+  if (!dataDir) return new PGlite();
+  // PGlite's NodeFS uses mkdirSync without recursive, so the parent must exist.
+  fs.mkdirSync(path.dirname(dataDir), { recursive: true });
+  return new PGlite(dataDir);
 }
 
 export function redactDatabaseUrl(url) {

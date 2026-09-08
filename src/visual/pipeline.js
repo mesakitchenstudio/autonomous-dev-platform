@@ -146,11 +146,15 @@ export async function runVisualVerification({ project, council, demo, owns, dbRe
     run.usage = visual.usage || [];
     run.decision = visual.decision?.decision || 'COMPLETE';
     run.blockingFindings = visual.decision?.blockingFindings || [];
+    run.aiReviewed = true;
+    run.heuristicOnly = false;
   } else {
     run.findings = layoutFindings;
+    run.heuristicOnly = true;
+    run.aiReviewed = false;
     run.decision = layoutFindings.some(item => HIGH_SEVERITY.has(item.severity)) ? 'CHANGES_REQUIRED' : 'COMPLETE';
     run.blockingFindings = layoutFindings.filter(item => HIGH_SEVERITY.has(item.severity));
-    run.chair = { provider: 'deterministic', decision: { decision: run.decision, blockingFindings: run.blockingFindings, summary: 'Deterministic visual heuristics' } };
+    run.chair = { provider: 'deterministic', decision: { decision: run.decision, blockingFindings: run.blockingFindings, summary: 'Deterministic visual heuristics are diagnostic only.' } };
   }
 
   if (!run.blockingFindings.length && layoutFindings.some(item => HIGH_SEVERITY.has(item.severity))) {
@@ -206,26 +210,36 @@ export function mockVisualRun(project) {
 export function evidenceFromVisual(project, run, runtime) {
   const previous = project.evidence || latestCursorRun(project)?.evidence || {};
   if (project.demo || run.mock) return mockEvidence({ prompt: 'visual skipped in demo' });
+  const heuristic = run.heuristicOnly || run.chair?.provider === 'deterministic';
   const judgmentStatus = run.decision === 'NOT_APPLICABLE'
     ? EvidenceStatus.NOT_APPLICABLE
     : run.blockingFindings?.length || run.decision === 'CHANGES_REQUIRED'
       ? EvidenceStatus.FAIL
-      : run.decision === 'COMPLETE' || run.decision === 'PASS'
-        ? EvidenceStatus.PASS
-        : EvidenceStatus.NOT_RUN;
+      : heuristic
+        ? EvidenceStatus.NOT_RUN
+        : run.decision === 'COMPLETE' || run.decision === 'PASS'
+          ? EvidenceStatus.PASS
+          : EvidenceStatus.NOT_RUN;
   return createEvidence({
     ...previous,
     visual: {
       status: judgmentStatus,
-      provenance: run.decision === 'NOT_APPLICABLE' ? EvidenceProvenance.PLATFORM_VERIFIED : EvidenceProvenance.AI_REVIEWED,
+      provenance: run.decision === 'NOT_APPLICABLE'
+        ? EvidenceProvenance.PLATFORM_VERIFIED
+        : heuristic
+          ? EvidenceProvenance.PLATFORM_VERIFIED
+          : EvidenceProvenance.AI_REVIEWED,
       detail: run.decision === 'NOT_APPLICABLE'
         ? 'Visual review is NOT_APPLICABLE for this application kind.'
-        : `AI_REVIEWED visual judgment; screenshot capture remains PLATFORM_VERIFIED (${(runtime?.screenshots || []).length} images).`
+        : heuristic
+          ? 'Deterministic visual heuristics are diagnostic only and do not satisfy required AI visual review.'
+          : `AI_REVIEWED visual judgment; screenshot capture remains PLATFORM_VERIFIED (${(runtime?.screenshots || []).length} images).`
     },
     artifacts: previous.artifacts || [],
     warnings: [
       ...(previous.warnings || []),
-      ...(run.decision === 'NOT_APPLICABLE' ? [] : ['Visual aesthetic/usability judgment is AI_REVIEWED, not PLATFORM_VERIFIED exit-code evidence.'])
+      ...(run.decision === 'NOT_APPLICABLE' || heuristic ? [] : ['Visual aesthetic/usability judgment is AI_REVIEWED, not PLATFORM_VERIFIED exit-code evidence.']),
+      ...(heuristic ? ['Deterministic visual heuristics did not satisfy required AI visual review.'] : [])
     ],
     errors: (run.blockingFindings || []).map(item => item.description || item.issue || item.code),
     source: { ...(previous.source || {}), visualRunId: run.id }

@@ -34,7 +34,7 @@ test('persisted CURSOR_EXECUTING with completed run resumes at review', async ()
   const { store } = await tempStore();
   const cursor = new FakeCursor();
   const orch = orchestratorFor(store, { cursor });
-  const run = { iteration: 1, at: new Date().toISOString(), prompt: 'p', result: { output: 'done', evidence: evidence() }, sessionId: 's1', evidence: evidence() };
+  const run = { iteration: 1, at: new Date().toISOString(), prompt: 'p', result: { output: 'done', evidence: evidence() }, sessionId: 's1', evidence: evidence(), checkpointSha: 'dddddddddddddddddddddddddddddddddddddddd' };
   const project = await seedProject(store, {
     state: ProjectState.CURSOR_EXECUTING,
     iteration: 1,
@@ -53,7 +53,7 @@ test('persisted COUNCIL_REVIEW recovers without another Cursor run', async () =>
   const { store } = await tempStore();
   const cursor = new FakeCursor();
   const orch = orchestratorFor(store, { cursor });
-  const run = { iteration: 1, at: new Date().toISOString(), prompt: 'p', result: { output: 'done', evidence: evidence() }, sessionId: 's1', evidence: evidence() };
+  const run = { iteration: 1, at: new Date().toISOString(), prompt: 'p', result: { output: 'done', evidence: evidence() }, sessionId: 's1', evidence: evidence(), checkpointSha: 'dddddddddddddddddddddddddddddddddddddddd' };
   const project = await seedProject(store, {
     state: ProjectState.COUNCIL_REVIEW,
     iteration: 1,
@@ -73,7 +73,7 @@ test('persisted FINAL_VERIFICATION recovers through the gate', async () => {
   const { store } = await tempStore();
   const cursor = new FakeCursor();
   const orch = orchestratorFor(store, { cursor });
-  const run = { iteration: 1, at: new Date().toISOString(), prompt: 'p', result: { output: 'done', evidence: evidence() }, sessionId: 's1', evidence: evidence() };
+  const run = { iteration: 1, at: new Date().toISOString(), prompt: 'p', result: { output: 'done', evidence: evidence() }, sessionId: 's1', evidence: evidence(), checkpointSha: 'dddddddddddddddddddddddddddddddddddddddd' };
   const project = await seedProject(store, {
     state: ProjectState.FINAL_VERIFICATION,
     iteration: 1,

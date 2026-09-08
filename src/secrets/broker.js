@@ -8,6 +8,7 @@ import { VaultSecretBroker } from './vault.js';
 import { MockSecretBroker } from './mock.js';
 import { CONTROL_PLANE_SECRET_NAMES } from '../security/kinds.js';
 import { secretRef } from './kinds.js';
+import { assertMockBackendAllowed } from '../security/mock-backends.js';
 
 const leases = new Map();
 
@@ -62,7 +63,10 @@ export class EnvironmentBootstrapBroker {
 
 export function createSecretBroker({ kind, env = process.env, ...rest } = {}) {
   const resolved = kind || env.SECRET_BROKER || 'encrypted-local';
-  if (resolved === 'mock') return new MockSecretBroker();
+  if (resolved === 'mock') {
+    assertMockBackendAllowed('MockSecretBroker', env, rest);
+    return new MockSecretBroker();
+  }
   if (resolved === 'vault') return new VaultSecretBroker({ env, ...rest });
   if (resolved === 'environment-bootstrap') return new EnvironmentBootstrapBroker({ env });
   return new EncryptedLocalSecretBroker({ env, ...rest });

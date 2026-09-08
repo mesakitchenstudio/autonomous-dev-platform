@@ -19,6 +19,7 @@
     "test:runtime": "node --test test/runtime-qa.test.js test/visual-provider.test.js test/capabilities.test.js",
     "test:sandbox": "node scripts/run-sandbox-tests.js",
     "setup:browsers": "node scripts/setup-browsers.js",
+    "readiness:live": "node scripts/readiness-live.js",
     "check": "node scripts/check.js"
   },
   "engines": {

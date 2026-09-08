@@ -43,13 +43,15 @@ npm run demo
 
 Open http://localhost:4317, submit an idea, and watch the project move to `READY_FOR_OWNER_REVIEW` with MOCK verification.
 
-Demo without `DATABASE_URL` uses an isolated PGlite store plus an in-process worker. That is still `verificationLevel: MOCK`. It is not the production PostgreSQL path.
+Demo uses local/demo persistence (`JsonStore` under `DATA_DIR`). Production uses PostgreSQL. They are not equivalent: the demo exists to show owner UX, state transitions, delivery versioning, and approve / request-changes — not production database durability. Combined `npm run demo` does **not** run PGlite on the HTTP event loop.
+
+If `DATABASE_URL` is set, even `DEMO_MODE` uses PostgreSQL. `DATABASE_URL` is required outside `DEMO_MODE`. The platform does not silently fall back to JSON files when production Postgres is unavailable.
 
 ## Durable execution (Phase 3)
 
 Production persistence is PostgreSQL. It is the source of truth for projects, jobs, leases, Council records, Cursor runs, evidence, and events.
 
-PGlite remains a development/test implementation for fast unit tests, the default demo when `DATABASE_URL` is unset, and local convenience. PGlite concurrency tests are **not** equivalent to production PostgreSQL validation. Queue locking, `FOR UPDATE SKIP LOCKED`, and multi-process worker behavior are verified against a real PostgreSQL server by `npm run test:postgres`.
+PGlite remains a development/test implementation for fast unit tests and `npm run db`. It is **not** the default demo persistence. PGlite concurrency tests are **not** equivalent to production PostgreSQL validation. Queue locking, `FOR UPDATE SKIP LOCKED`, and multi-process worker behavior are verified against a real PostgreSQL server by `npm run test:postgres`.
 
 The API process no longer runs Council/Cursor inline. It writes a project and a durable job, then returns. A worker claims jobs with `FOR UPDATE SKIP LOCKED`, heartbeats a lease, and hands off the next job in the same transaction as completion.
 
@@ -71,7 +73,7 @@ npm run demo       # combined API + worker, MOCK verification
 
 Delivery is **at-least-once**. Operations use idempotency keys such as `project:<id>:cursor:<iteration>`. A crash after Cursor has changed files but before the platform records completion is recovered from Git checkpoints when possible; uncommitted interrupted work is preserved and never reset automatically.
 
-JSON files in `DATA_DIR` are legacy. Import them with `npm run import-json` (idempotent; originals are not deleted). Archive them manually after you confirm the import.
+JSON files in `DATA_DIR` are the explicit `DEMO_MODE` persistence when `DATABASE_URL` is unset. They are not a production fallback. To load older JSON dumps into PostgreSQL, use `npm run import-json` (idempotent; originals are not deleted).
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -83,7 +85,7 @@ JSON files in `DATA_DIR` are legacy. Import them with `npm run import-json` (ide
 | `JOB_MAX_ATTEMPTS` | 8 | Then the job is dead-lettered |
 | `JOB_RETRY_BASE_MS` / `JOB_RETRY_MAX_MS` | 2000 / 60000 | Scheduled job backoff |
 
-`GET /health` is liveness. `GET /ready` checks the database and returns safe job counts. `GET /api/projects/:id/export` dumps one project for diagnostics (no API keys).
+`GET /health` is liveness. `GET /ready` checks PostgreSQL when a database is configured and otherwise reports the demo engine. `GET /api/projects/:id/export` dumps one project for diagnostics (no API keys).
 
 ```bash
 # Isolated PostgreSQL integration suite (refuses non-test database names)
@@ -91,7 +93,7 @@ npm run test:postgres
 # or: TEST_DATABASE_URL=postgres://USER@127.0.0.1:5432/adp_phase3_test npm run test:postgres
 ```
 
-`npm test` runs only `test/*.test.js` on the fast PGlite/in-memory path. It does not start PostgreSQL and will not open `DATABASE_URL` or a production database.
+`npm test` runs only `test/*.test.js` on the fast local path (JSON demo store and in-memory/PGlite helpers). It does not start PostgreSQL and will not open `DATABASE_URL` or a production database.
 
 ## Cursor isolation (Phase 4)
 
@@ -158,7 +160,17 @@ New projects are provisioned before Cursor starts feature work. Existing reposit
 4. Set `CURSOR_PROJECT_PATH` to the repository Cursor should implement into, or enter a repository path in the UI.
 5. Run `npm start` and `npm run worker`.
 
-With `STRICT_COUNCIL=true`, all four providers must be configured.
+With `STRICT_COUNCIL=true`, all four providers must be configured. The first live pilot policy is `MIN_COUNCIL_RESPONSES=4` (4/4 participation). Degraded quorum remains available as a general platform setting, but live readiness will not claim a full four-model Council unless four members succeeded.
+
+Before starting a real project, run:
+
+```bash
+npm run readiness:live
+npm run readiness:live -- --smoke
+npm run readiness:live -- --full
+```
+
+`--smoke` makes one minimal adapter request per configured provider and a tiny Council/Chair protocol check. `--full` also runs a disposable Cursor ACP git smoke. The command never prints secret values and exits 0 only when the live platform is ready.
 
 ## Recovery
 
@@ -195,7 +207,8 @@ Recovery never treats a Cursor response as project completion.
 - final verification `COMPLETE`
 - no unresolved orchestration error
 - iteration limit not exceeded
-- for real projects: required platform verification is PASS or NOT_APPLICABLE (FAIL / NOT_RUN / UNKNOWN block READY)
+- for real projects: MOCK evidence, mock checkpoints, MockCursor, mock runtime/visual/security, and demo delivery artifacts cannot enter owner review
+- for real projects: required platform verification is PASS or NOT_APPLICABLE (FAIL / NOT_RUN / UNKNOWN / MOCK block READY)
 - for UI projects that produced a required runtime plan: runtime launch and critical scenarios PASS, with no blocking accessibility defects
 - for UI projects that require visual review: screenshot coverage completed, visual Council COMPLETE, no unresolved HIGH/CRITICAL visual findings
 - stale runtime/visual evidence (old checkpoint or artifact hash) blocks READY
@@ -218,7 +231,7 @@ Owner idea
 ```
 
 - Responses are schema-validated. Malformed JSON gets one bounded repair retry, then is dropped.
-- A temporary non-Chair failure is tolerated when `MIN_COUNCIL_RESPONSES` (default 2) still succeed.
+- The first live-pilot default is `MIN_COUNCIL_RESPONSES=4`. A lower value still enables degraded quorum as a general platform feature, but that is not a verified four-model Council.
 - Chair failure, all-member failure, or an invalid specification after repair fails the project.
 - `CHAIR_PROVIDER` and `CHAIR_MODEL` are independently configurable.
 - Provider retries: `AI_MAX_RETRIES` (default 2) with backoff for 429/5xx/timeouts. 401/403 are not retried.
@@ -227,7 +240,7 @@ Owner idea
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MIN_COUNCIL_RESPONSES` | 2 | Minimum valid member responses per round |
+| `MIN_COUNCIL_RESPONSES` | 4 | Minimum valid member responses per round (first live-pilot policy is 4/4) |
 | `MAX_COUNCIL_REASONING_ROUNDS` | 3 | Hard cap on analysis + critique + resolution |
 | `AI_RESPONSE_REPAIR_ATTEMPTS` | 1 | Schema repair tries after the first response |
 | `AI_MAX_RETRIES` | 2 | HTTP/transient retries per call |

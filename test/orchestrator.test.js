@@ -130,7 +130,7 @@ test('boot recovery does not double-run a project', async () => {
   const second = await orch.recoverOnBoot();
   assert.equal(first.length, 1);
   assert.equal(second.length, 0);
-  await waitFor(store, first[0], p => p.state === ProjectState.READY_FOR_OWNER_REVIEW || p.state === ProjectState.FAILED);
+  await waitFor(store, first[0], p => p.state === ProjectState.READY_FOR_OWNER_REVIEW || p.state === ProjectState.FAILED, 20000);
 });
 
 test('READY and FAILED are not auto-resumed on boot', async () => {

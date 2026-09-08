@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -21,10 +21,12 @@ async function waitForHealth(port, timeoutMs = 15000) {
 }
 
 function startDemo({ port, dataDir, pgliteDir }) {
+  const env = { ...process.env };
+  delete env.DATABASE_URL;
   return spawn(process.execPath, ['scripts/demo.js'], {
     cwd: root,
     env: {
-      ...process.env,
+      ...env,
       DEMO_MODE: 'true',
       APP_ROLE: 'combined',
       OWNER_TOKEN_BOOTSTRAP: 'adp-demo-owner-token',
@@ -44,10 +46,12 @@ function startDemo({ port, dataDir, pgliteDir }) {
 }
 
 function killTree(child) {
-  try { child.kill('SIGTERM'); } catch {}
-  setTimeout(() => {
-    try { child.kill('SIGKILL'); } catch {}
-  }, 500);
+  if (!child?.pid) return;
+  if (process.platform === 'win32') {
+    spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    return;
+  }
+  try { child.kill('SIGKILL'); } catch {}
 }
 
 test('process kill during workflow resumes without skipping review', async () => {

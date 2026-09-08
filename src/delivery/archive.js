@@ -3,12 +3,13 @@ import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { git } from '../git/exec.js';
 import { isProtectedSecretFile } from '../git/secrets.js';
 import { highConfidenceSecretFindings, scanFilesForSecrets, scanTextForSecrets } from '../secrets/scan.js';
 import { ErrorCode, PlatformError } from '../orchestrator/errors.js';
 import { artifactRoot } from '../verify/artifacts.js';
+import { isDemoDelivery, writeDemoAppFiles } from './demo-app.js';
 
 const ARCHIVE_SKIP = new Set(['.git', 'node_modules', '.adp-secrets', '.pglite', 'artifacts']);
 
@@ -21,9 +22,9 @@ export async function createSourceArchive({ project, checkpointSha, version, wor
   await fsPromises.mkdir(destDir, { recursive: true });
   const archivePath = path.join(destDir, 'source.zip');
   let files = [];
-  const mockArchive = Boolean(project.demo || String(checkpointSha || '').startsWith('mock:'));
+  const mockArchive = Boolean(isDemoDelivery(project));
   if (mockArchive) {
-    files = await writeGeneratedArchive(archivePath, project, null);
+    files = await writeDemoAppArchive(archivePath, project, { version });
   } else if (workspacePath && fs.existsSync(path.join(workspacePath, '.git')) && checkpointSha && !String(checkpointSha).startsWith('unverified:')) {
     const archived = git(['archive', '--format=zip', '-o', archivePath, checkpointSha], { cwd: workspacePath });
     if (!archived.ok) {
@@ -86,7 +87,23 @@ async function writeGeneratedArchive(archivePath, project, workspacePath) {
     await fsPromises.writeFile(path.join(staging, 'README.md'), readme);
     files.push('README.md');
   }
-  const zipped = zipDirectory(staging, archivePath);
+  const zipped = await zipDirectory(staging, archivePath);
+  await fsPromises.rm(staging, { recursive: true, force: true }).catch(() => {});
+  if (!zipped) {
+    throw new PlatformError({
+      code: ErrorCode.DELIVERY_PREPARATION_FAILED,
+      message: 'Unable to create owner source archive.',
+      phase: 'DELIVERY_PREPARATION',
+      retryable: true
+    });
+  }
+  return files;
+}
+
+async function writeDemoAppArchive(archivePath, project, { version } = {}) {
+  const staging = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'adp-demo-src-'));
+  const files = await writeDemoAppFiles(staging, project, { version });
+  const zipped = await zipDirectory(staging, archivePath);
   await fsPromises.rm(staging, { recursive: true, force: true }).catch(() => {});
   if (!zipped) {
     throw new PlatformError({
@@ -116,17 +133,31 @@ async function copyOwnerSafeTree(from, to, rel, files) {
   }
 }
 
-function zipDirectory(source, dest) {
-  const tar = spawnSync('tar', ['-a', '-cf', dest, '-C', source, '.'], { windowsHide: true, encoding: 'utf8' });
-  if (tar.status === 0 && fs.existsSync(dest)) return true;
+async function zipDirectory(source, dest) {
+  if (await runCommand('tar', ['-a', '-cf', dest, '-C', source, '.'], 30000) && fs.existsSync(dest)) return true;
   if (process.platform === 'win32') {
-    const ps = spawnSync('powershell', ['-NoProfile', '-Command', `Compress-Archive -Path (Join-Path '${source}' '*') -DestinationPath '${dest}' -Force`], {
-      windowsHide: true,
-      encoding: 'utf8'
-    });
-    return ps.status === 0 && fs.existsSync(dest);
+    const ok = await runCommand('powershell', ['-NoProfile', '-Command', `Compress-Archive -Path (Join-Path '${source}' '*') -DestinationPath '${dest}' -Force`], 30000);
+    return ok && fs.existsSync(dest);
   }
   return false;
+}
+
+function runCommand(command, args, timeoutMs) {
+  return new Promise(resolve => {
+    const child = spawn(command, args, { windowsHide: true, stdio: 'ignore' });
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(false);
+    }, timeoutMs);
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    child.on('close', code => {
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
+  });
 }
 
 function scanArchivePaths(files, workspacePath) {

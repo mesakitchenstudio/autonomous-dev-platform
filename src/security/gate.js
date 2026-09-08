@@ -1,4 +1,4 @@
-import { EvidenceStatus, VerificationLevel } from '../orchestrator/evidence.js';
+import { EvidenceStatus } from '../orchestrator/evidence.js';
 import { SandboxMode, SecurityProfile } from './kinds.js';
 import { resolveSecurityProfile } from './policy.js';
 import { defaultSecretBroker } from '../secrets/broker.js';
@@ -22,8 +22,6 @@ export function hasBlockingSecretFindings(project) {
 
 export function applySecurityGate(project, reasons) {
   if (project?.demo) return reasons;
-  const evidence = project?.evidence || project?.cursorRuns?.at(-1)?.evidence;
-  if (evidence?.verificationLevel === VerificationLevel.MOCK) return reasons;
 
   const profile = resolveSecurityProfile(process.env, project);
   const security = latestSecurityEvidence(project);

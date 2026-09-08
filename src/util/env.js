@@ -18,13 +18,26 @@ export function loadDotEnv(path = '.env') {
   }
 }
 
-export function boolEnv(name, fallback = false) {
-  const value = process.env[name];
+export function boolEnvFrom(env, name, fallback = false) {
+  const value = env?.[name];
   if (value == null || value === '') return fallback;
-  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+  return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
+}
+
+export function boolEnv(name, fallback = false) {
+  return boolEnvFrom(process.env, name, fallback);
+}
+
+export function intEnvFrom(env, name, fallback) {
+  const parsed = Number.parseInt(env?.[name] ?? '', 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 export function intEnv(name, fallback) {
-  const parsed = Number.parseInt(process.env[name] ?? '', 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return intEnvFrom(process.env, name, fallback);
+}
+
+export function envPresent(env, name) {
+  const value = env?.[name];
+  return value != null && String(value).trim() !== '';
 }

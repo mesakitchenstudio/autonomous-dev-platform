@@ -30,7 +30,7 @@ export async function waitFor(store, id, predicate, timeoutMs = 3000) {
       project = await store.get(id);
       if (predicate(project)) return project;
     } catch (error) {
-      if (!(error instanceof SyntaxError) && error?.code !== 'ENOENT') throw error;
+      if (!(error instanceof SyntaxError) && error?.code !== 'ENOENT' && error?.code !== 'EBUSY' && error?.code !== 'EPERM' && error?.code !== 'EACCES') throw error;
     }
     await new Promise(r => setTimeout(r, 15));
   }
@@ -151,7 +151,17 @@ export class FakeCursor {
         detail: 'fake'
       }
     });
-    return { sessionId: sessionId || 's1', stopReason: this.executionFail ? 'ERROR' : 'end_turn', output: `done:${prompt}`, updates: [], stderr: '', evidence };
+    const checkpointSha = 'dddddddddddddddddddddddddddddddddddddddd';
+    return {
+      sessionId: sessionId || 's1',
+      stopReason: this.executionFail ? 'ERROR' : 'end_turn',
+      output: `done:${prompt}`,
+      updates: [],
+      stderr: '',
+      evidence,
+      checkpointSha,
+      git: { checkpointSha }
+    };
   }
 }
 

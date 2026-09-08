@@ -238,6 +238,7 @@ export class Orchestrator {
     try {
       if (isOwnerTerminal(project.state) || project.state === ProjectState.FAILED) return;
       while (true) {
+        if (this.demo) await new Promise(resolve => setImmediate(resolve));
         project = await this.store.get(id);
         if (isOwnerTerminal(project.state) || project.state === ProjectState.FAILED) return;
         if (project.iteration > this.maxIterations) {

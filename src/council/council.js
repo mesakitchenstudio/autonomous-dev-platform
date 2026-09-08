@@ -18,7 +18,7 @@ export class Council {
   constructor(providers, chairName = 'openai', options = {}) {
     this.providers = providers;
     this.timeoutMs = options.timeoutMs ?? intEnv('AI_REQUEST_TIMEOUT_MS', 120000);
-    this.minResponses = options.minResponses ?? intEnv('MIN_COUNCIL_RESPONSES', 2);
+    this.minResponses = options.minResponses ?? intEnv('MIN_COUNCIL_RESPONSES', 4);
     this.maxReasoningRounds = options.maxReasoningRounds ?? intEnv('MAX_COUNCIL_REASONING_ROUNDS', 3);
     this.maxRepairAttempts = options.maxRepairAttempts ?? intEnv('AI_RESPONSE_REPAIR_ATTEMPTS', 1);
     this.retryPolicy = options.retryPolicy || createRetryPolicy();

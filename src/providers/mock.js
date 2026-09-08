@@ -87,14 +87,37 @@ function architectureFromIdea(text) {
   return { category: 'WEB', platform: 'WEB', framework: 'VITE', language: 'TYPESCRIPT', ui: true, backendRequired: false, databaseRequired: false, rationale: 'Client-side web application.' };
 }
 
+function extractOwnerIdea(prompt) {
+  return /Owner idea:\n([\s\S]*?)\n\nRepository context/.exec(prompt)?.[1]?.trim()
+    || /Owner idea:\n([\s\S]+)/.exec(prompt)?.[1]?.trim()
+    || 'the owner idea';
+}
+
 function spec(prompt) {
-  const idea = /Owner idea:\n([\s\S]*?)\n\nRepository context/.exec(prompt)?.[1]?.trim() || 'the owner idea';
+  const idea = extractOwnerIdea(prompt);
+  const recipe = /\brecipe|\bmeal plan/i.test(idea);
+  const name = recipe ? 'Recipe Box' : 'Generated Application';
+  const summary = recipe
+    ? 'A simple recipe web application for browsing, searching, saving favorites, and planning weekly meals.'
+    : 'A domain-appropriate application generated from the owner idea.';
+  const requirements = recipe
+    ? {
+      functional: [
+        'Browse the available recipes.',
+        'Search for a recipe.',
+        'Open recipe details.',
+        'Save a recipe to Favorites.',
+        'Add a recipe to the weekly meal plan.'
+      ],
+      nonFunctional: ['Maintainable structure', 'No secrets in source']
+    }
+    : { functional: ['Implement the owner idea end-to-end', 'Include tests and runtime verification'], nonFunctional: ['Maintainable structure', 'No secrets in source'] };
   return {
-    productName: 'Generated Application',
-    productSummary: 'A domain-appropriate application generated from the owner idea.',
+    productName: name,
+    productSummary: summary,
     projectType: 'application',
-    product: { name: 'Generated Application', summary: 'A domain-appropriate application generated from the owner idea.', type: 'application', targetUsers: ['End users'] },
-    requirements: { functional: ['Implement the owner idea end-to-end', 'Include tests and runtime verification'], nonFunctional: ['Maintainable structure', 'No secrets in source'] },
+    product: { name, summary, type: 'application', targetUsers: ['End users'] },
+    requirements,
     assumptions: ['Council resolved ordinary engineering choices'],
     architecture: { platform: architectureFromIdea(idea).platform, technology: [architectureFromIdea(idea).framework], patterns: ['simple layered structure'], components: ['application core', 'tests'], data: { strategy: 'conventional' }, security: { secrets: 'do not commit' } },
     architectureChoice: architectureFromIdea(idea),

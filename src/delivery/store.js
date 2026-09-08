@@ -122,6 +122,8 @@ export async function hydratePhase9(adapter, assembled) {
     retention: jsonValue(row.retention, null),
     artifacts: artifacts.rows.filter(item => item.delivery_id === row.id).map(fromArtifactRow),
     screenshots: artifacts.rows.filter(item => item.delivery_id === row.id && item.kind === 'SCREENSHOT').map(fromArtifactRow),
+    verification: jsonValue(row.manifest, null)?.verificationSummary || null,
+    technicalLimitations: jsonValue(row.manifest, null)?.technicalLimitations || [],
     createdAt: toIso(row.created_at),
     readyAt: toIso(row.ready_at)
   }));

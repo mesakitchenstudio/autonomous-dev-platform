@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { canCompleteAutonomousWork, canEnterOwnerReview } from '../src/orchestrator/gate.js';
 import { specFixture, createEvidence, EvidenceStatus, EvidenceProvenance, VerificationLevel, reviewComplete, finalComplete, verificationNotApplicable } from './helpers.js';
+import { verificationSetHash } from '../src/delivery/lineage.js';
+import { prepareDeliverySnapshot } from '../src/delivery/prepare.js';
+import { ErrorCode } from '../src/orchestrator/errors.js';
+import { evidenceFromVisual } from '../src/visual/pipeline.js';
+import { mockEvidence } from '../src/orchestrator/evidence.js';
 
 function baseProject(overrides = {}) {
   return {
@@ -145,3 +150,149 @@ test('max iterations never produces READY', () => {
   assert.equal(gate.ok, false);
   assert.ok(gate.reasons.includes('iteration_limit_exceeded'));
 });
+
+function attachReadyDelivery(project, sha) {
+  project.cursorRuns[0].checkpointSha = sha;
+  if (project.verificationRuns?.[0]) project.verificationRuns[0].checkpointSha = sha;
+  const hash = verificationSetHash(project);
+  project.deliveries = [{
+    status: 'READY',
+    current: true,
+    checkpointSha: sha,
+    verificationSetHash: hash,
+    manifest: { files: 1 },
+    manifestHash: 'aa'.repeat(32),
+    ownerReport: 'Owner report',
+    verificationReport: 'Verification report',
+    secretScan: 'PASS',
+    artifacts: [{ kind: 'SOURCE_ARCHIVE', sha256: 'bb'.repeat(32) }]
+  }];
+  return project;
+}
+
+test('non-demo MOCK evidence and mock checkpoint cannot enter owner review', () => {
+  const project = baseProject({
+    demo: false,
+    verificationLevel: VerificationLevel.MOCK,
+    evidence: createEvidence({
+      verificationLevel: VerificationLevel.MOCK,
+      execution: { status: EvidenceStatus.PASS, provenance: EvidenceProvenance.MOCK }
+    })
+  });
+  project.cursorRuns[0].evidence = project.evidence;
+  attachReadyDelivery(project, 'mock:real-project:1');
+  const gate = canEnterOwnerReview(project);
+  assert.equal(gate.ok, false);
+  assert.ok(gate.reasons.includes('mock_evidence_not_allowed_for_real_project'));
+  assert.ok(gate.reasons.includes('mock_checkpoint_not_allowed_for_real_project'));
+});
+
+test('Chair COMPLETE cannot override mock rejection for a real project', () => {
+  const project = baseProject({
+    demo: false,
+    council: {
+      discovery: { spec: specFixture() },
+      review1: reviewComplete('COMPLETE'),
+      final: finalComplete('COMPLETE')
+    }
+  });
+  project.evidence = createEvidence({
+    verificationLevel: VerificationLevel.MOCK,
+    execution: { status: EvidenceStatus.PASS, provenance: EvidenceProvenance.MOCK }
+  });
+  project.cursorRuns[0].evidence = project.evidence;
+  attachReadyDelivery(project, 'mock:chair-override:1');
+  const gate = canEnterOwnerReview(project);
+  assert.equal(gate.ok, false);
+  assert.ok(gate.reasons.includes('mock_evidence_not_allowed_for_real_project'));
+});
+
+test('demo project with MOCK evidence can still enter owner review', () => {
+  const project = baseProject({
+    demo: true,
+    evidence: mockEvidence({ prompt: 'demo' })
+  });
+  project.cursorRuns[0].evidence = project.evidence;
+  attachReadyDelivery(project, 'mock:demo-project:1');
+  const gate = canEnterOwnerReview(project);
+  assert.equal(gate.ok, true);
+});
+
+test('real PLATFORM_VERIFIED and AI_REVIEWED evidence can still enter owner review', () => {
+  const sha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const project = baseProject({
+    demo: false,
+    evidence: createEvidence({
+      verificationLevel: VerificationLevel.PLATFORM_VERIFIED,
+      execution: { status: EvidenceStatus.PASS, provenance: EvidenceProvenance.CURSOR_REPORTED },
+      build: { status: EvidenceStatus.NOT_APPLICABLE, provenance: EvidenceProvenance.PLATFORM_VERIFIED },
+      tests: { status: EvidenceStatus.NOT_APPLICABLE, provenance: EvidenceProvenance.PLATFORM_VERIFIED },
+      visual: { status: EvidenceStatus.PASS, provenance: EvidenceProvenance.AI_REVIEWED }
+    }),
+    visualReviewRuns: [{
+      iteration: 1,
+      status: 'PASS',
+      decision: 'COMPLETE',
+      aiReviewed: true,
+      heuristicOnly: false,
+      blockingFindings: [],
+      chair: { provider: 'openai', decision: { decision: 'COMPLETE', blockingFindings: [], summary: 'ok' } },
+      checkpointSha: sha
+    }]
+  });
+  project.cursorRuns[0].evidence = project.evidence;
+  attachReadyDelivery(project, sha);
+  const gate = canEnterOwnerReview(project);
+  assert.equal(gate.ok, true, gate.reasons.join(','));
+});
+
+test('deterministic visual heuristics cannot satisfy required AI visual review', () => {
+  const sha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  const project = baseProject({
+    demo: false,
+    runtimePolicy: { runtime: 'REQUIRED', visual: 'REQUIRED' },
+    runtimeRuns: [{
+      id: 'r1',
+      iteration: 1,
+      checkpointSha: sha,
+      status: 'PASS',
+      completedAt: new Date().toISOString(),
+      policy: { runtime: 'REQUIRED', visual: 'REQUIRED' },
+      screenshots: [{ sha256: 's', checkpointSha: sha }]
+    }],
+    visualReviewRuns: [{
+      id: 'v1',
+      iteration: 1,
+      runtimeRunId: 'r1',
+      checkpointSha: sha,
+      status: 'PASS',
+      decision: 'COMPLETE',
+      heuristicOnly: true,
+      aiReviewed: false,
+      blockingFindings: [],
+      chair: { provider: 'deterministic', decision: { decision: 'COMPLETE', blockingFindings: [], summary: 'heuristic' } }
+    }]
+  });
+  project.cursorRuns[0].checkpointSha = sha;
+  attachReadyDelivery(project, sha);
+  const gate = canEnterOwnerReview(project);
+  assert.equal(gate.ok, false);
+  assert.ok(gate.reasons.includes('deterministic_visual_not_allowed_for_required_ai_review'));
+  const evidence = evidenceFromVisual(project, project.visualReviewRuns[0], project.runtimeRuns[0]);
+  assert.notEqual(evidence.visual.provenance, EvidenceProvenance.AI_REVIEWED);
+  assert.notEqual(evidence.visual.status, EvidenceStatus.PASS);
+});
+
+test('real delivery preparation rejects a mock checkpoint', async () => {
+  const project = baseProject({
+    id: '00000000-0000-4000-8000-aaaaaaaaaaaa',
+    demo: false
+  });
+  project.cursorRuns[0].checkpointSha = 'mock:real-delivery:1';
+  await assert.rejects(
+    () => prepareDeliverySnapshot(project, { workspacePath: project.projectPath }),
+    err => err.code === ErrorCode.DELIVERY_LINEAGE_INVALID
+      && /mock_checkpoint_not_allowed_for_real_project/.test(err.message)
+  );
+});
+

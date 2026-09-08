@@ -17,15 +17,17 @@ import {
   buildVerificationReport,
   buildVerificationSummary,
   collectKnownLimitations,
+  collectTechnicalLimitations,
   howToOpen,
   selectOwnerScreenshots,
   testingGuidance
 } from './reports.js';
+import { artifactRoot } from '../verify/artifacts.js';
+import { demoProductName, isDemoDelivery, writeDemoAppFiles } from './demo-app.js';
 import { latestCursorRun, specProductName } from '../orchestrator/gate.js';
 import { latestVerificationRun } from '../verify/pipeline.js';
 import { isExistingRepositoryProject, latestProvisioningRun } from '../provision/plan.js';
 import { ErrorCode, PlatformError } from '../orchestrator/errors.js';
-import { artifactRoot } from '../verify/artifacts.js';
 
 export async function prepareDeliverySnapshot(project, { workspacePath } = {}) {
   const checkpointSha = finalCheckpointSha(project);
@@ -67,6 +69,23 @@ export async function prepareDeliverySnapshot(project, { workspacePath } = {}) {
 
   const destDir = deliveryDir(project.id, delivery.version);
   await fs.mkdir(destDir, { recursive: true });
+  const demoApp = Boolean(project.demo);
+  if (!project.demo && (String(checkpointSha || '').startsWith('mock:') || String(checkpointSha || '').startsWith('unverified:'))) {
+    throw new PlatformError({
+      code: ErrorCode.DELIVERY_LINEAGE_INVALID,
+      message: 'Delivery lineage failed: mock_checkpoint_not_allowed_for_real_project',
+      phase: 'DELIVERY_PREPARATION',
+      retryable: false,
+      details: { reasons: ['mock_checkpoint_not_allowed_for_real_project'] }
+    });
+  }
+  const appDir = path.join(destDir, 'app');
+  if (demoApp) {
+    await writeDemoAppFiles(appDir, project, { version: delivery.version });
+    if (workspacePath) {
+      await writeDemoAppFiles(workspacePath, project, { version: delivery.version }).catch(() => {});
+    }
+  }
   const archive = await createSourceArchive({
     project,
     checkpointSha,
@@ -74,6 +93,7 @@ export async function prepareDeliverySnapshot(project, { workspacePath } = {}) {
     workspacePath: workspacePath || project.repository?.workspacePath || project.projectPath
   });
   const limitations = collectKnownLimitations(project);
+  const technicalLimitations = collectTechnicalLimitations(project);
   const screenshots = selectOwnerScreenshots(project, checkpointSha);
   const cards = buildVerificationSummary(project);
   const ownerReport = buildOwnerReport(project, {
@@ -87,18 +107,19 @@ export async function prepareDeliverySnapshot(project, { workspacePath } = {}) {
   const previous = project.deliveries.filter(item => item.id !== delivery.id).at(-1) || null;
   const feedback = (project.ownerReviews || []).filter(item => item.decision === 'CHANGES_REQUESTED').at(-1)?.feedback || project.pendingOwnerFeedback?.feedback;
   const releaseNotes = buildReleaseNotes(project, { version: delivery.version, previous, feedback });
-  const reviewPage = buildReviewPage(project, ownerReport);
   const builds = selectBuildArtifacts(project, checkpointSha);
 
   const ownerPath = path.join(destDir, 'OWNER_REVIEW.md');
   const verifyPath = path.join(destDir, 'verification-report.md');
   const notesPath = path.join(destDir, 'RELEASE_NOTES.md');
-  const reviewPath = path.join(destDir, 'review', 'index.html');
+  const reviewPath = demoApp ? path.join(appDir, 'index.html') : path.join(destDir, 'review', 'index.html');
   await fs.writeFile(ownerPath, ownerReport);
   await fs.writeFile(verifyPath, verificationReport);
   await fs.writeFile(notesPath, releaseNotes);
-  await fs.mkdir(path.dirname(reviewPath), { recursive: true });
-  await fs.writeFile(reviewPath, reviewPage);
+  if (!demoApp) {
+    await fs.mkdir(path.dirname(reviewPath), { recursive: true });
+    await fs.writeFile(reviewPath, buildReviewPage(project, ownerReport));
+  }
 
   const artifacts = [
     await fileArtifact(project, delivery, DeliveryArtifactKind.SOURCE_ARCHIVE, archive.path, archive.fileName, archive.sha256, archive.size, checkpointSha),
@@ -142,6 +163,7 @@ export async function prepareDeliverySnapshot(project, { workspacePath } = {}) {
     finalReviewStatus: project.council?.final?.decision?.decision || null,
     createdAt: new Date().toISOString(),
     knownLimitations: limitations,
+    technicalLimitations,
     installRun: howToOpen(project),
     changedFiles: isExistingRepositoryProject(project)
       ? (latestCursorRun(project)?.changedFiles || []).slice(0, 40)
@@ -186,6 +208,7 @@ export async function prepareDeliverySnapshot(project, { workspacePath } = {}) {
     releaseNotes,
     lineage: lineage.chain,
     secretScan: 'PASS',
+    technicalLimitations,
     readyAt: new Date().toISOString()
   });
   for (const item of project.deliveries) {
@@ -217,14 +240,15 @@ export function ownerDeliveryView(project) {
     deliveryId: delivery.id,
     version: delivery.version,
     status: delivery.status,
-    productName: specProductName(project.council?.discovery?.spec),
+    productName: specProductName(project.council?.discovery?.spec) || demoProductName(project),
     summary: project.council?.final?.decision?.summary || 'Ready for final owner review.',
     readyAt: delivery.readyAt,
     verificationLevel: project.verificationLevel,
     checkpointSha: delivery.checkpointSha,
     manifestHash: delivery.manifestHash,
-    verification: delivery.verification,
+    verification: delivery.verification || delivery.manifest?.verificationSummary,
     knownLimitations: delivery.knownLimitations,
+    technicalLimitations: delivery.technicalLimitations || delivery.manifest?.technicalLimitations || [],
     releaseNotes: delivery.releaseNotes,
     ownerReport: delivery.ownerReport,
     verificationReport: delivery.verificationReport,
@@ -237,6 +261,7 @@ export function ownerDeliveryView(project) {
     workingBranch: project.repository?.workingBranch || null,
     testingGuidance: testingGuidance(project),
     howToOpen: howToOpen(project),
+    demo: Boolean(project.demo),
     components: (project.components || []).map(item => ({
       id: item.id,
       path: item.path,

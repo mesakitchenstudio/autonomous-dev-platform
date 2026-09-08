@@ -81,7 +81,20 @@ export class JsonStore {
   async list() {
     await this.init();
     const files = (await fs.readdir(this.dataDir)).filter(x => x.endsWith('.json') && !x.endsWith('.tmp'));
-    const projects = await Promise.all(files.map(async f => this.readJson(path.join(this.dataDir, f))));
-    return projects.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const projects = [];
+    for (const file of files) {
+      try {
+        projects.push(await this.readJson(path.join(this.dataDir, file)));
+      } catch (error) {
+        if (error instanceof SyntaxError || ['ENOENT', 'EBUSY', 'EPERM', 'EACCES'].includes(error.code)) continue;
+        throw error;
+      }
+    }
+    return projects
+      .filter(item => item?.id && item.createdAt)
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  }
+  async exportProject(id) {
+    return this.get(id);
   }
 }

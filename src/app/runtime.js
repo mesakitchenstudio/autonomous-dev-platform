@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boolEnv, intEnv } from '../util/env.js';
-import { createPgPool, createPGlite, PgAdapter, PGliteAdapter, redactDatabaseUrl } from '../db/adapter.js';
+import { createPgPool, PgAdapter, redactDatabaseUrl } from '../db/adapter.js';
 import { migrate } from '../db/migrate.js';
 import { DurableStore } from '../storage/durable-store.js';
 import { JsonStore } from '../storage/json-store.js';
@@ -36,12 +36,12 @@ export async function createRuntime({ role = 'api', demo = boolEnv('DEMO_MODE', 
     queue = new JobQueue(adapter);
     engine = 'postgres';
   } else {
-    const dataDir = process.env.PGLITE_DATA_DIR || path.join(root, '.pglite', demo ? 'demo' : 'data');
-    adapter = new PGliteAdapter(await createPGlite(dataDir));
-    await migrate(adapter);
-    store = new DurableStore(adapter);
-    queue = new JobQueue(adapter);
-    engine = 'pglite';
+    // DEMO_MODE without DATABASE_URL uses local JSON persistence so the owner
+    // dashboard HTTP stays on the Node event loop. This is not production durability.
+    const dataDir = process.env.DATA_DIR || path.join(root, 'data');
+    store = new JsonStore(dataDir);
+    await store.init();
+    engine = 'json-demo';
   }
 
   const providers = createProviders();
@@ -71,7 +71,7 @@ export async function createRuntime({ role = 'api', demo = boolEnv('DEMO_MODE', 
     databaseUrl: redactDatabaseUrl(databaseUrl),
     jsonDir: process.env.DATA_DIR || path.join(root, 'data'),
     async close() {
-      await adapter.close();
+      if (adapter) await adapter.close();
     }
   };
 }

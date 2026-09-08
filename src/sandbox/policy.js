@@ -5,6 +5,7 @@ import { resolveRequiredSandboxMode, resolveSecurityProfile } from '../security/
 import { NetworkMode, SandboxBackend, emptyIsolationCapabilities } from './kinds.js';
 import { cachedContainerCapabilities } from './discover.js';
 import { ErrorCode, PlatformError } from '../orchestrator/errors.js';
+import { assertMockBackendAllowed, isDemoOrTestContext } from '../security/mock-backends.js';
 
 export function resourceLimitsFromEnv(env = process.env) {
   return {
@@ -20,22 +21,29 @@ export function resourceLimitsFromEnv(env = process.env) {
 export function resolveSandboxPolicy({ project, demo, env = process.env, operation } = {}) {
   const profile = resolveSecurityProfile(env, project);
   const requiredMode = resolveRequiredSandboxMode({ project, demo, env });
+  if (String(env.SANDBOX_BACKEND || '').toLowerCase() === 'mock') {
+    assertMockBackendAllowed('MockSandbox', env, { demo, project });
+  }
   const discovery = requiredMode === SandboxMode.CONTAINER_HARDENED
     ? cachedContainerCapabilities()
     : { available: false, capabilities: emptyIsolationCapabilities() };
 
-  if (requiredMode === SandboxMode.CONTAINER_HARDENED && !discovery.available && env.SANDBOX_BACKEND !== 'mock') {
-    throw new PlatformError({
-      code: ErrorCode.SANDBOX_INFRASTRUCTURE_UNAVAILABLE,
-      message: 'Production policy requires a hardened container sandbox, but no container engine is available. Refusing to run untrusted project code on the host.',
-      phase: 'SANDBOX',
-      retryable: true,
-      details: {
-        profile,
-        requiredMode,
-        os: discovery.capabilities?.os || process.platform
-      }
-    });
+  if (requiredMode === SandboxMode.CONTAINER_HARDENED && !discovery.available) {
+    if (String(env.SANDBOX_BACKEND || '').toLowerCase() === 'mock' && isDemoOrTestContext(env, { demo, project })) {
+      // Demo/test may still request a mock backend when a container engine is absent.
+    } else {
+      throw new PlatformError({
+        code: ErrorCode.SANDBOX_INFRASTRUCTURE_UNAVAILABLE,
+        message: 'Production policy requires a hardened container sandbox, but no container engine is available. Refusing to run untrusted project code on the host.',
+        phase: 'SANDBOX',
+        retryable: true,
+        details: {
+          profile,
+          requiredMode,
+          os: discovery.capabilities?.os || process.platform
+        }
+      });
+    }
   }
 
   const backend = requiredMode === SandboxMode.MOCK

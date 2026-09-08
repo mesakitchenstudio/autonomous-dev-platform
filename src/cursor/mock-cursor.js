@@ -2,6 +2,7 @@ import { mockEvidence } from '../orchestrator/evidence.js';
 import { createCursorContract, CursorMode, CursorRunStatus, CursorUncertainty } from './contract.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { writeDemoAppFiles } from '../delivery/demo-app.js';
 
 export class MockCursorClient {
   constructor({ mutate } = {}) {
@@ -19,6 +20,14 @@ export class MockCursorClient {
     if (typeof this.mutate === 'function') await this.mutate(input, cwd);
     else if (cwd && input.writeFile) {
       await fs.writeFile(path.join(cwd, input.writeFile.path), input.writeFile.contents, 'utf8');
+    } else if (cwd) {
+      await writeDemoAppFiles(cwd, {
+        idea: input.prompt,
+        demo: true,
+        council: { discovery: { spec: { productName: null, productSummary: null, cursorPrompt: input.prompt } } },
+        ownerReviews: input.ownerFeedback ? [{ decision: 'CHANGES_REQUESTED', feedback: input.ownerFeedback }] : [],
+        deliveries: [{ version: input.iteration || 1, status: 'PREPARING' }]
+      }, { version: input.iteration || 1 }).catch(() => {});
     }
     const evidence = mockEvidence({ prompt: input.prompt });
     const contract = createCursorContract({

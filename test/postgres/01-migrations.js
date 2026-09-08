@@ -1,8 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { migrate, migrationStatus } from '../../src/db/migrate.js';
 import { MIGRATION_ID } from '../../src/db/schema.js';
-import { pgDurable, recordEvidence } from './harness.js';
+import { pgDurable, recordEvidence, testDatabaseUrl } from './harness.js';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const EXPECTED_TABLES = [
   'schema_migrations', 'projects', 'state_transitions', 'operations',
@@ -85,5 +90,37 @@ test('migrations execute on a clean PostgreSQL database and are idempotent', asy
     });
   } finally {
     await adapter.close();
+  }
+});
+
+test('migrateFromUrl succeeds with a database URL and no AI provider keys', async () => {
+  const keys = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'XAI_API_KEY', 'CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN'];
+  const previous = {};
+  for (const key of keys) {
+    previous[key] = process.env[key];
+    delete process.env[key];
+  }
+  const { migrateFromUrl } = await import('../../src/db/run-migrate.js');
+  try {
+    const result = await migrateFromUrl(testDatabaseUrl());
+    assert.equal(result.engine, 'postgres');
+    assert.ok(result.id);
+
+    const env = { ...process.env, DATABASE_URL: testDatabaseUrl() };
+    for (const key of keys) delete env[key];
+    const script = spawnSync(process.execPath, [path.join(root, 'scripts', 'migrate.js')], {
+      cwd: root,
+      env,
+      encoding: 'utf8',
+      timeout: 30000
+    });
+    assert.equal(script.status, 0, script.stderr || script.stdout);
+    assert.match(script.stdout || '', /Migrations verified/);
+    assert.doesNotMatch(`${script.stdout || ''}\n${script.stderr || ''}`, /STRICT_COUNCIL|OPENAI_API_KEY is required|createProviders/);
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
   }
 });

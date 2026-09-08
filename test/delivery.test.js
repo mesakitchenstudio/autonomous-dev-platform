@@ -6,7 +6,7 @@ import path from 'node:path';
 import { tempStore, waitFor, orchestratorFor, ProjectState } from './helpers.js';
 import { currentDelivery } from '../src/delivery/lineage.js';
 import { inspectArchiveEntries } from '../src/delivery/archive.js';
-import { startReviewSession, expireSessions, stopReviewSession } from '../src/delivery/session.js';
+import { startReviewSession, expireSessions, stopReviewSession, liveReviewHandleCount } from '../src/delivery/session.js';
 import { NotificationService, InAppNotificationProvider } from '../src/notifications/index.js';
 import { OwnerDecision } from '../src/delivery/kinds.js';
 import { ErrorCode } from '../src/orchestrator/errors.js';
@@ -14,11 +14,18 @@ import { ErrorCode } from '../src/orchestrator/errors.js';
 async function readyProject() {
   process.env.ARTIFACT_ROOT = await fs.mkdtemp(path.join(os.tmpdir(), 'adp-del-'));
   const { store } = await tempStore();
-  const orch = orchestratorFor(store);
-  const created = await store.create({ idea: 'Build a simple recipe web application where users can browse recipes, open a recipe, search recipes, and save favorites.' });
+  const orch = orchestratorFor(store, { demo: true });
+  const created = await store.create({
+    idea: 'Build a simple recipe web application where users can browse recipes, search recipes, open recipe details, save recipes to favorites, and create a simple weekly meal plan.',
+    demo: true
+  });
   await orch.run(created.id);
   const project = await waitFor(store, created.id, p => p.state === ProjectState.READY_FOR_OWNER_REVIEW, 20000);
   return { store, orch, project };
+}
+
+function archiveNames(archivePath) {
+  return inspectArchiveEntries(archivePath).map(item => item.replace(/^\.\//, '').replace(/\\/g, '/'));
 }
 
 test('delivery snapshot is created before READY and includes archive plus reports', async () => {
@@ -33,10 +40,15 @@ test('delivery snapshot is created before READY and includes archive plus report
   assert.equal(delivery.secretScan, 'PASS');
   const source = delivery.artifacts.find(item => item.kind === 'SOURCE_ARCHIVE');
   assert.ok(source?.sha256);
-  const names = inspectArchiveEntries(source.storedPath);
-  assert.ok(names.some(item => /README|package|src|index/i.test(item)) || names.length >= 0);
-  assert.equal(names.some(item => item === '.git' || item.endsWith('/.git')), false);
+  const names = archiveNames(source.storedPath);
+  assert.ok(names.some(item => /(^|\/)index\.html$/.test(item)), names.join(','));
+  assert.ok(names.some(item => /(^|\/)app\.js$/.test(item)), names.join(','));
+  assert.equal(names.every(item => !/source\.md$/i.test(item) || names.length > 1), true);
+  assert.equal(names.filter(item => /(^|\/)(index\.html|app\.js|styles\.css|README\.md)$/.test(item)).length >= 3, true);
+  assert.equal(names.some(item => item === '.git' || item.endsWith('/.git') || item.includes('/.git/')), false);
   assert.equal(names.some(item => /(^|\/)\.env$/.test(item)), false);
+  assert.equal(names.some(item => /secret-store|\.adp-secrets/i.test(item)), false);
+  assert.equal(delivery.manifest.sourceArchiveSha256, source.sha256);
   assert.equal((project.notifications || []).filter(item => item.type === 'READY_FOR_OWNER_REVIEW').length, 1);
   assert.ok(project.history.some(item => item.to === ProjectState.DELIVERY_PREPARATION));
 });
@@ -97,19 +109,25 @@ test('ready notification is idempotent across worker restart', async () => {
   assert.ok(first.notification);
 });
 
-test('review session serves the verified artifact and cannot mutate source', async () => {
+test('review session serves the demo application and reuses the same session', async () => {
   const { store, project } = await readyProject();
-  const session = await startReviewSession(project, { ttlMs: 200 });
+  const first = await startReviewSession(project, { ttlMs: 30_000 });
   await store.save(project);
-  assert.equal(session.runtime.mutatesSource, false);
-  assert.equal(session.runtime.verifiedArtifact, true);
-  const page = await fetch(session.reviewUrl);
+  assert.equal(first.runtime.mutatesSource, false);
+  assert.equal(first.runtime.verifiedArtifact, true);
+  assert.ok(first.url || first.reviewUrl);
+  const page = await fetch(first.reviewUrl);
   assert.equal(page.ok, true);
   const html = await page.text();
-  assert.match(html, /ready for your review|Approve|Request Changes/i);
-  expireSessions(project, Date.now() + 1000);
+  assert.match(html, /data-app="demo"|Recipe|Favorites/i);
+  const before = liveReviewHandleCount();
+  const second = await startReviewSession(project, { ttlMs: 30_000 });
+  assert.equal(second.id, first.id);
+  assert.equal((project.reviewSessions || []).filter(item => item.status === 'ACTIVE').length, 1);
+  assert.ok(liveReviewHandleCount() <= before);
+  expireSessions(project, Date.now() + 60_000);
   assert.equal(project.reviewSessions.at(-1).status, 'EXPIRED');
-  await stopReviewSession(project, session.id);
+  await stopReviewSession(project, first.id);
 });
 
 test('source archive secret scan blocks planted credentials', async () => {
