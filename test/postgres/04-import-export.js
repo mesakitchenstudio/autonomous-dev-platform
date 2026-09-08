@@ -79,14 +79,16 @@ test('legacy JSON import against PostgreSQL preserves records and is idempotent'
 
 test('project export contains durable history and does not expose secrets', async () => {
   const { adapter, store, queue, url } = await pgDurable();
+  let worker;
   try {
     await truncateAppTables(adapter);
     const { orchestrator } = pgOrchestrator(store, queue);
     const project = await orchestrator.submit({ idea: 'export secrets check' });
-    const worker = pgWorker(store, queue, orchestrator);
+    worker = pgWorker(store, queue, orchestrator);
     await worker.start();
     await waitForProject(store, project.id, p => p.state === ProjectState.READY_FOR_OWNER_REVIEW);
     await worker.stop();
+    worker = null;
 
     const dump = await store.exportProject(project.id);
     assert.ok(dump.project);
@@ -125,6 +127,7 @@ test('project export contains durable history and does not expose secrets', asyn
       }
     });
   } finally {
+    if (worker) await worker.stop().catch(() => {});
     await adapter.close();
   }
 });

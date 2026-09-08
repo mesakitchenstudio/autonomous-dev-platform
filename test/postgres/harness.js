@@ -196,4 +196,34 @@ export async function openClient(connectionString = testDatabaseUrl()) {
   return client;
 }
 
+export async function closeAdapter(adapter) {
+  if (!adapter) return;
+  if (adapter.pool) adapter.pool.on('error', () => {});
+  try { await adapter.close(); } catch {}
+}
+
+export async function assertDatabaseReachable(connectionString = testDatabaseUrl()) {
+  const pool = createPgPool(connectionString);
+  try {
+    const result = await pool.query('SELECT 1 AS ok');
+    if (result.rows[0]?.ok !== 1) throw new Error('Shared test database did not return 1');
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function runBounded(promise, timeoutMs, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export { redactDatabaseUrl, root, EVIDENCE_PATH };

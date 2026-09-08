@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import net from 'node:net';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { assertTestDatabaseUrl, redactDatabaseUrl } from '../test/postgres/guard.js';
@@ -27,7 +27,10 @@ async function listPgTests() {
   const only = process.env.ADP_PG_ONLY;
   const names = (await fs.readdir(dir))
     .filter(name => /^\d{2}-.+\.js$/.test(name))
-    .filter(name => !only || name.includes(only))
+    .filter(name => {
+      if (!only) return true;
+      return only.split(',').map(part => part.trim()).filter(Boolean).some(part => name.includes(part));
+    })
     .sort();
   return names.map(name => path.join(dir, name));
 }
@@ -92,8 +95,42 @@ async function startEmbeddedPostgres() {
     version: version.rows[0].version,
     mode: 'embedded-postgres temporary test instance',
     dataDir: path.join(dir, 'data'),
-    pgCtl
+    pgCtl,
+    dir
   };
+}
+
+async function stopOwnedPostgres(owned) {
+  if (!owned?.pg) return;
+  const child = owned.pg.process;
+  if (child && child.exitCode == null && !child.killed) {
+    await new Promise(resolve => {
+      const timer = setTimeout(() => {
+        try { child.kill('SIGKILL'); } catch {}
+        resolve();
+      }, 8000);
+      child.once('exit', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      try { child.kill('SIGINT'); } catch { resolve(); }
+    });
+  }
+  // embedded-postgres.stop() waits for `exit` even when the child already died
+  // (for example after an outage test used pg_ctl on the shared data dir).
+  owned.pg.process = undefined;
+  try { await owned.pg.stop(); } catch {}
+  if (owned.pgCtl && owned.dataDir) {
+    spawnSync(owned.pgCtl, ['stop', '-D', owned.dataDir, '-m', 'fast', '-W'], {
+      encoding: 'utf8',
+      timeout: 5000,
+      windowsHide: true
+    });
+  }
+  if (owned.dir) {
+    await fs.rm(owned.dir, { recursive: true, force: true }).catch(() => {});
+  }
+  owned.pg = null;
 }
 
 try {
@@ -159,13 +196,9 @@ try {
   console.log(`  files: ${files.length}`);
 
   const result = await runNodeTests(files, env);
-  if (owned?.pg) {
-    try { await owned.pg.stop(); } catch {}
-    owned.pg = null;
-  }
+  await stopOwnedPostgres(owned);
+  owned = null;
   process.exit(result.code ?? 1);
 } finally {
-  if (owned?.pg) {
-    try { await owned.pg.stop(); } catch {}
-  }
+  await stopOwnedPostgres(owned);
 }
