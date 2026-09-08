@@ -3,6 +3,8 @@ import { createProjectRecord } from './json-store.js';
 import { assembleProject, disassembleProject, jsonValue, promptPreview, toIso } from './project-document.js';
 import { sanitizeExport } from '../security/export.js';
 import { projectSecurityPolicy } from '../security/policy.js';
+import { persistPhase9, hydratePhase9 } from '../delivery/store.js';
+import { ownerDeliveryView } from '../delivery/prepare.js';
 
 export class DurableStore {
   constructor(adapter) {
@@ -235,6 +237,7 @@ export class DurableStore {
       await persistPhase6(tx, project);
       await persistPhase7(tx, project);
       await persistPhase8(tx, project);
+      await persistPhase9(tx, project);
       for (const item of parts.errors) {
         await tx.query(`INSERT INTO error_records (id, project_id, code, message, phase, retryable, details, at)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
@@ -298,7 +301,32 @@ export class DurableStore {
       secretReferences: (project.secretReferences || []).map(item => ({
         secretRef: item.secretRef,
         class: item.class
-      }))
+      })),
+      deliveries: (project.deliveries || []).map(item => ({
+        id: item.id,
+        version: item.version,
+        status: item.status,
+        checkpointSha: item.checkpointSha,
+        manifestHash: item.manifestHash,
+        readyAt: item.readyAt,
+        knownLimitations: item.knownLimitations || []
+      })),
+      ownerReviews: (project.ownerReviews || []).map(item => ({
+        id: item.id,
+        deliveryId: item.deliveryId,
+        decision: item.decision,
+        feedback: item.feedback,
+        createdAt: item.createdAt
+      })),
+      notifications: (project.notifications || []).map(item => ({
+        id: item.id,
+        type: item.type,
+        deliveryId: item.deliveryId,
+        createdAt: item.createdAt,
+        readAt: item.readAt
+      })),
+      completion: project.completion || null,
+      approvedAt: project.approvedAt || null
     };
     return sanitizeExport(dump);
   }
@@ -392,6 +420,10 @@ export class DurableStore {
       ? jsonValue(policy.rows[0].payload, { profile: policy.rows[0].profile, requiredSandboxMode: policy.rows[0].required_sandbox_mode })
       : assembled.securityPolicy || projectSecurityPolicy(assembled);
     assembled.sandboxProvenance = assembled.sandboxRuns.at(-1) || assembled.sandboxProvenance || null;
+    await hydratePhase9(this.adapter, assembled);
+    if (assembled.deliveries?.length) {
+      assembled.delivery = { ...(assembled.delivery || {}), ...ownerDeliveryView(assembled) };
+    }
     return assembled;
   }
 }

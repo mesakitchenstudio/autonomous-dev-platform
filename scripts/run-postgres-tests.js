@@ -24,8 +24,10 @@ function freePort() {
 
 async function listPgTests() {
   const dir = path.join(root, 'test', 'postgres');
+  const only = process.env.ADP_PG_ONLY;
   const names = (await fs.readdir(dir))
     .filter(name => /^\d{2}-.+\.js$/.test(name))
+    .filter(name => !only || name.includes(only))
     .sort();
   return names.map(name => path.join(dir, name));
 }
@@ -157,7 +159,11 @@ try {
   console.log(`  files: ${files.length}`);
 
   const result = await runNodeTests(files, env);
-  if (result.code !== 0) process.exitCode = result.code;
+  if (owned?.pg) {
+    try { await owned.pg.stop(); } catch {}
+    owned.pg = null;
+  }
+  process.exit(result.code ?? 1);
 } finally {
   if (owned?.pg) {
     try { await owned.pg.stop(); } catch {}

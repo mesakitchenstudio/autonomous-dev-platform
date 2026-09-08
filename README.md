@@ -2,9 +2,19 @@
 
 A domain-agnostic orchestration foundation for this contract:
 
-**Owner idea → independent multi-model Council → Council Chair → Cursor implementation → evidence → multi-model review → automatic correction loops → final release verification → platform completion gate → owner review.**
+**Owner idea → independent multi-model Council → Council Chair → Cursor implementation → evidence → multi-model review → automatic correction loops → final release verification → delivery preparation → owner review → approve or request changes.**
 
 The owner is intentionally absent from normal engineering loops.
+
+```text
+Submit idea
+→ autonomous development
+→ ready notification
+→ owner review
+→ approve / request changes
+```
+
+`READY_FOR_OWNER_REVIEW` means a verified delivery snapshot exists. The owner can open or download that exact result and choose Approve or Request Changes. Approval accepts the autonomous result. It does **not** deploy, merge to main, or publish to an app store. Request Changes keeps history, starts another autonomous cycle, and produces delivery v2.
 
 ## What Phase 1 and Phase 2 include
 
@@ -164,8 +174,11 @@ If the API or worker process stops after a state is persisted, jobs and leases r
 | `RUNTIME_VERIFICATION` | Replay or reuse runtime QA for the same iteration + checkpoint + artifact hash. |
 | `VISUAL_VERIFICATION` | Replay or reuse visual review for the same runtime run + screenshot set hash. |
 | `COUNCIL_REVIEW` | Finish review from the last Cursor evidence; do not skip final verification |
-| `FINAL_VERIFICATION` | Finish final verification, then the platform completion gate |
-| `READY_FOR_OWNER_REVIEW` / `OWNER_APPROVED` | Terminal — not auto-resumed |
+| `FINAL_VERIFICATION` | Finish final verification, then delivery preparation |
+| `DELIVERY_PREPARATION` | Build an immutable owner snapshot from the final checkpoint |
+| `READY_FOR_OWNER_REVIEW` | Owner terminal — in-app ready notification, no auto-resume |
+| `OWNER_CHANGES_REQUESTED` | Feedback recorded; autonomous work resumes automatically |
+| `OWNER_APPROVED` / `DONE` | Terminal successful completion — not auto-resumed |
 | `FAILED` | Not auto-retried. `POST /api/projects/:id/retry` resumes from the safest checkpoint without discarding history |
 
 Recovery never treats a Cursor response as project completion.
@@ -187,6 +200,9 @@ Recovery never treats a Cursor response as project completion.
 - for UI projects that require visual review: screenshot coverage completed, visual Council COMPLETE, no unresolved HIGH/CRITICAL visual findings
 - stale runtime/visual evidence (old checkpoint or artifact hash) blocks READY
 - backend/CLI visual may be `NOT_APPLICABLE`
+- a READY delivery snapshot, validated manifest, source archive, owner report, and passing archive secret scan
+
+See `docs/OWNER_GUIDE.md` for the owner-facing workflow. Delivery packages live under `artifacts/<project-id>/deliveries/vN/`.
 
 The Council Chair cannot bypass this gate. Phase 5 technical verification is not product-acceptance proof. AI visual judgment is `AI_REVIEWED`; platform screenshot capture is `PLATFORM_VERIFIED`.
 
@@ -375,7 +391,38 @@ Untrusted project code, package scripts, and runtime apps execute through `Execu
 
 Project records store secret **references**, not values. Control-plane API access is token-first (`Authorization: Bearer`). See `SECURITY.md` for trust boundaries, limitations, and what has not been penetration tested.
 
-Owner notifications and approval UI remain Phase 9.
+## Owner delivery (Phase 9)
+
+The finished owner workflow is:
+
+```text
+Submit idea
+→ autonomous development
+→ delivery preparation
+→ ready notification
+→ owner review
+→ approve / request changes
+```
+
+`READY_FOR_OWNER_REVIEW` means an immutable delivery snapshot exists for the final verified checkpoint. The owner can open a temporary review session, download permitted artifacts, and choose Approve or Request Changes.
+
+Approve accepts the autonomous result and moves the project to `DONE`. It does **not** merge to main, deploy infrastructure, publish a website, or submit to an app store.
+
+Request Changes records the owner's feedback, supersedes the previous delivery, and starts another autonomous cycle. Delivery v2 is a new snapshot. Previous deliveries stay in the audit history.
+
+In-app ready notifications are required and idempotent. Optional webhook and email adapters are configuration-dependent. Intermediate engineering states do not notify the owner.
+
+See `docs/OWNER_GUIDE.md` for the owner-facing steps.
+
+### Remaining platform limitations
+
+- Approval is not production deployment or store publication.
+- iOS native builds require a macOS-capable worker.
+- Some external integrations still need configured credentials.
+- Automated accessibility checks are not a complete manual accessibility certification.
+- AI visual review does not replace the owner's judgment of look and feel.
+- Signing credentials stay with the owner; unsigned or test-signed artifacts are stated as limitations.
+- Demo/MOCK verification is not a production-verified application build.
 
 ### Cursor Cloud mode
 

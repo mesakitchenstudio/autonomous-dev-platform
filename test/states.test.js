@@ -20,8 +20,10 @@ test('representative illegal transitions are rejected', () => {
     [ProjectState.IDEA_SUBMITTED, ProjectState.READY_FOR_OWNER_REVIEW],
     [ProjectState.SPECIFICATION_READY, ProjectState.READY_FOR_OWNER_REVIEW],
     [ProjectState.COUNCIL_REVIEW, ProjectState.READY_FOR_OWNER_REVIEW],
+    [ProjectState.FINAL_VERIFICATION, ProjectState.READY_FOR_OWNER_REVIEW],
     [ProjectState.FAILED, ProjectState.READY_FOR_OWNER_REVIEW],
-    [ProjectState.OWNER_APPROVED, ProjectState.FAILED]
+    [ProjectState.OWNER_APPROVED, ProjectState.FAILED],
+    [ProjectState.DONE, ProjectState.COUNCIL_DISCOVERY]
   ];
   for (const [from, to] of illegal) {
     assert.equal(isLegalTransition(from, to), false, `${from} -> ${to}`);
@@ -29,8 +31,10 @@ test('representative illegal transitions are rejected', () => {
   }
 });
 
-test('owner is only exposed after final verification', () => {
-  assert.doesNotThrow(() => assertTransition(ProjectState.FINAL_VERIFICATION, ProjectState.READY_FOR_OWNER_REVIEW));
+test('owner is only exposed after delivery preparation', () => {
+  assert.doesNotThrow(() => assertTransition(ProjectState.FINAL_VERIFICATION, ProjectState.DELIVERY_PREPARATION));
+  assert.doesNotThrow(() => assertTransition(ProjectState.DELIVERY_PREPARATION, ProjectState.READY_FOR_OWNER_REVIEW));
+  assert.throws(() => assertTransition(ProjectState.FINAL_VERIFICATION, ProjectState.READY_FOR_OWNER_REVIEW));
   assert.throws(() => assertTransition(ProjectState.CURSOR_EXECUTING, ProjectState.READY_FOR_OWNER_REVIEW));
 });
 
@@ -49,6 +53,9 @@ test('boot resume and owner terminal classification', () => {
   assert.equal(isBootResumable(ProjectState.CURSOR_EXECUTING), true);
   assert.equal(isBootResumable(ProjectState.FAILED), false);
   assert.equal(isBootResumable(ProjectState.READY_FOR_OWNER_REVIEW), false);
+  assert.equal(isBootResumable(ProjectState.DELIVERY_PREPARATION), true);
+  assert.equal(isBootResumable(ProjectState.OWNER_CHANGES_REQUESTED), true);
   assert.equal(isOwnerTerminal(ProjectState.READY_FOR_OWNER_REVIEW), true);
   assert.equal(isOwnerTerminal(ProjectState.OWNER_APPROVED), true);
+  assert.equal(isOwnerTerminal(ProjectState.DONE), true);
 });

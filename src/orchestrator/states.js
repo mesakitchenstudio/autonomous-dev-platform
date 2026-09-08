@@ -11,8 +11,11 @@ export const ProjectState = Object.freeze({
   VISUAL_VERIFICATION: 'VISUAL_VERIFICATION',
   COUNCIL_REVIEW: 'COUNCIL_REVIEW',
   FINAL_VERIFICATION: 'FINAL_VERIFICATION',
+  DELIVERY_PREPARATION: 'DELIVERY_PREPARATION',
   READY_FOR_OWNER_REVIEW: 'READY_FOR_OWNER_REVIEW',
+  OWNER_CHANGES_REQUESTED: 'OWNER_CHANGES_REQUESTED',
   OWNER_APPROVED: 'OWNER_APPROVED',
+  DONE: 'DONE',
   FAILED: 'FAILED'
 });
 
@@ -26,12 +29,15 @@ export const ACTIVE_WORKFLOW_STATES = Object.freeze([
   ProjectState.RUNTIME_VERIFICATION,
   ProjectState.VISUAL_VERIFICATION,
   ProjectState.COUNCIL_REVIEW,
-  ProjectState.FINAL_VERIFICATION
+  ProjectState.FINAL_VERIFICATION,
+  ProjectState.DELIVERY_PREPARATION,
+  ProjectState.OWNER_CHANGES_REQUESTED
 ]);
 
 export const OWNER_TERMINAL_STATES = Object.freeze([
   ProjectState.READY_FOR_OWNER_REVIEW,
-  ProjectState.OWNER_APPROVED
+  ProjectState.OWNER_APPROVED,
+  ProjectState.DONE
 ]);
 
 const transitions = new Map([
@@ -52,9 +58,12 @@ const transitions = new Map([
   ])],
   [ProjectState.VISUAL_VERIFICATION, new Set([ProjectState.COUNCIL_REVIEW, ProjectState.FAILED])],
   [ProjectState.COUNCIL_REVIEW, new Set([ProjectState.CURSOR_EXECUTING, ProjectState.SPECIFICATION_READY, ProjectState.FINAL_VERIFICATION, ProjectState.FAILED])],
-  [ProjectState.FINAL_VERIFICATION, new Set([ProjectState.CURSOR_EXECUTING, ProjectState.SPECIFICATION_READY, ProjectState.READY_FOR_OWNER_REVIEW, ProjectState.FAILED])],
-  [ProjectState.READY_FOR_OWNER_REVIEW, new Set([ProjectState.OWNER_APPROVED, ProjectState.COUNCIL_DISCOVERY])],
-  [ProjectState.OWNER_APPROVED, new Set()],
+  [ProjectState.FINAL_VERIFICATION, new Set([ProjectState.CURSOR_EXECUTING, ProjectState.SPECIFICATION_READY, ProjectState.DELIVERY_PREPARATION, ProjectState.FAILED])],
+  [ProjectState.DELIVERY_PREPARATION, new Set([ProjectState.READY_FOR_OWNER_REVIEW, ProjectState.FAILED])],
+  [ProjectState.READY_FOR_OWNER_REVIEW, new Set([ProjectState.OWNER_APPROVED, ProjectState.OWNER_CHANGES_REQUESTED])],
+  [ProjectState.OWNER_CHANGES_REQUESTED, new Set([ProjectState.COUNCIL_DISCOVERY, ProjectState.FAILED])],
+  [ProjectState.OWNER_APPROVED, new Set([ProjectState.DONE])],
+  [ProjectState.DONE, new Set()],
   [ProjectState.FAILED, new Set([
     ProjectState.IDEA_SUBMITTED,
     ProjectState.COUNCIL_DISCOVERY,
@@ -65,7 +74,8 @@ const transitions = new Map([
     ProjectState.RUNTIME_VERIFICATION,
     ProjectState.VISUAL_VERIFICATION,
     ProjectState.COUNCIL_REVIEW,
-    ProjectState.FINAL_VERIFICATION
+    ProjectState.FINAL_VERIFICATION,
+    ProjectState.DELIVERY_PREPARATION
   ])]
 ]);
 

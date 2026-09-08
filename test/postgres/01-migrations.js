@@ -14,7 +14,9 @@ const EXPECTED_TABLES = [
   'project_components', 'provisioning_plans', 'provisioning_runs', 'provisioning_steps',
   'sandbox_runs', 'sandbox_events', 'secret_references', 'secret_leases',
   'security_findings', 'security_events', 'owner_tokens', 'owner_sessions',
-  'project_security_policies', 'temporary_project_resources'
+  'project_security_policies', 'temporary_project_resources',
+  'delivery_snapshots', 'delivery_artifacts', 'owner_reviews',
+  'owner_notifications', 'notification_deliveries', 'review_sessions'
 ];
 
 const EXPECTED_JOB_INDEXES = [
@@ -63,6 +65,7 @@ test('migrations execute on a clean PostgreSQL database and are idempotent', asy
     assert.ok(status.some(item => item.id === '004_phase6_runtime_visual'));
     assert.ok(status.some(item => item.id === '005_phase7_provisioning'));
     assert.ok(status.some(item => item.id === '006_phase8_security'));
+    assert.ok(status.some(item => item.id === '007_phase9_delivery'));
 
     const second = await migrate(adapter);
     assert.equal(second.applied, false);

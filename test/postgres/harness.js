@@ -31,8 +31,8 @@ export async function pgDurable(options = {}) {
   const adapter = new PgAdapter(createPgPool(url));
   await adapter.ready();
   if (options.reset) await resetPublicSchema(adapter);
-  if (options.truncate) await truncateAppTables(adapter);
   await migrate(adapter);
+  if (options.truncate) await truncateAppTables(adapter);
   const store = new DurableStore(adapter);
   const queue = new JobQueue(adapter, {
     leaseMs: options.leaseMs ?? 5000,
@@ -94,6 +94,8 @@ export async function truncateAppTables(adapter) {
     project_security_policies, temporary_project_resources,
     cursor_runs, council_artifacts, council_rounds, operations,
     verification_steps, verification_artifacts, verification_runs,
+    delivery_artifacts, delivery_snapshots, owner_reviews, owner_notifications,
+    notification_deliveries, review_sessions,
     state_transitions, projects
     RESTART IDENTITY CASCADE`);
 }

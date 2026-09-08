@@ -8,6 +8,7 @@ import { pgDurable, pgOrchestrator, pgWorker, recordEvidence, truncateAppTables 
 test('database outage prevents Cursor from starting', { timeout: 30000 }, async () => {
   const { adapter, store, queue } = await pgDurable();
   const cursor = new FakeCursor();
+  const owned = process.env.ADP_TEST_PG_OWNED === '1';
   try {
     await truncateAppTables(adapter);
     const { orchestrator } = pgOrchestrator(store, queue, { cursor });
@@ -21,7 +22,6 @@ test('database outage prevents Cursor from starting', { timeout: 30000 }, async 
     assert.equal(claimed.id, job.id);
 
     const runsBefore = cursor.runs;
-    const owned = process.env.ADP_TEST_PG_OWNED === '1';
     adapter.pool.on('error', () => {});
     try { await adapter.pool.end(); } catch {}
     if (owned && process.env.ADP_TEST_PG_CTL && process.env.ADP_TEST_PG_DATA) {
@@ -48,5 +48,10 @@ test('database outage prevents Cursor from starting', { timeout: 30000 }, async 
     });
   } finally {
     try { await adapter.close(); } catch {}
+    if (owned && process.env.ADP_TEST_PG_CTL && process.env.ADP_TEST_PG_DATA) {
+      spawnSync(process.env.ADP_TEST_PG_CTL, [
+        'start', '-D', process.env.ADP_TEST_PG_DATA, '-w'
+      ], { encoding: 'utf8' });
+    }
   }
 });

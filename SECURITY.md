@@ -135,6 +135,10 @@ Owner access is **token-first**. Long-lived tokens are stored as SHA-256 hashes,
 
 Demo mode uses the explicit bootstrap token `adp-demo-owner-token` only when `OWNER_TOKEN_BOOTSTRAP` is unset and `DEMO_MODE=true`. Authentication is not disabled.
 
+## Owner delivery (Phase 9)
+
+Owner review, downloads, Open App, Approve, and Request Changes require the same owner authentication as other project APIs. Delivery artifacts resolve by artifact ID inside the project boundary. Source archives are secret-scanned before READY. Owner feedback is product intent, not a shell command. Review sessions serve the verified delivery artifact and do not mutate source. Webhook payloads contain only event type, project id/name, delivery id, and a review reference.
+
 ## What is not guaranteed
 
 - This is not a penetration test of Docker, Linux, or Vault.

@@ -89,11 +89,15 @@ export class FakeCouncil {
     this.reviewCalls = 0;
     this.finalCalls = 0;
   }
-  async discover() {
+  async discover(idea, extra = '') {
     this.discoverCalls += 1;
     if (this.failDiscover) throw new Error('discover failed');
     if (this.failChair) throw Object.assign(new Error('chair failed'), { code: 'CHAIR_FAILURE' });
-    return { analyses: [{ provider: 'openai', output: { perspective: 'openai' } }], spec: specFixture(), chair: 'openai', failures: [] };
+    const spec = specFixture();
+    if (String(extra).includes('Owner feedback:')) {
+      spec.cursorPrompt = `${spec.cursorPrompt}\n\n${extra}`;
+    }
+    return { analyses: [{ provider: 'openai', output: { perspective: 'openai' } }], spec, chair: 'openai', failures: [] };
   }
   async review() {
     this.reviewCalls += 1;
@@ -153,7 +157,7 @@ export class FakeCursor {
 
 export class FakeWorkspace {
   async ensure(project) {
-    return project.repository?.workspacePath || project.projectPath || '/tmp/fake-workspace';
+    return project.repository?.workspacePath || project.projectPath || path.join(os.tmpdir(), `adp-missing-${project.id || 'workspace'}`);
   }
 }
 

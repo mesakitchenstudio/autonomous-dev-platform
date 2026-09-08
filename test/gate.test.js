@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canEnterOwnerReview } from '../src/orchestrator/gate.js';
+import { canCompleteAutonomousWork, canEnterOwnerReview } from '../src/orchestrator/gate.js';
 import { specFixture, createEvidence, EvidenceStatus, EvidenceProvenance, VerificationLevel, reviewComplete, finalComplete, verificationNotApplicable } from './helpers.js';
 
 function baseProject(overrides = {}) {
@@ -80,10 +80,16 @@ test('failed execution evidence blocks READY', () => {
   assert.ok(gate.reasons.includes('execution_failed'));
 });
 
-test('valid Phase-1 evidence plus Council decisions permits READY', () => {
-  const gate = canEnterOwnerReview(baseProject());
+test('valid Phase-1 evidence plus Council decisions permits delivery preparation', () => {
+  const gate = canCompleteAutonomousWork(baseProject());
   assert.equal(gate.ok, true);
   assert.equal(gate.verificationLevel, VerificationLevel.SELF_REPORTED);
+});
+
+test('owner review also requires a READY delivery snapshot', () => {
+  const without = canEnterOwnerReview(baseProject());
+  assert.equal(without.ok, false);
+  assert.ok(without.reasons.includes('missing_delivery_snapshot'));
 });
 
 test('required platform FAIL and NOT_RUN block READY', () => {

@@ -36,7 +36,8 @@ function startDemo({ port, dataDir, pgliteDir }) {
       PORT: String(port),
       PGLITE_DATA_DIR: pgliteDir,
       DATA_DIR: dataDir,
-      WORKSPACE_DIR: path.join(dataDir, 'ws')
+      WORKSPACE_DIR: path.join(dataDir, 'ws'),
+      ARTIFACT_ROOT: path.join(dataDir, 'artifacts')
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -63,21 +64,34 @@ test('process kill during workflow resumes without skipping review', async () =>
   assert.ok(created.id);
   await new Promise(resolve => setTimeout(resolve, 150));
   killTree(first);
-  await new Promise(resolve => setTimeout(resolve, 600));
+  await new Promise(resolve => setTimeout(resolve, 2500));
 
   const second = startDemo({ port, dataDir: dir, pgliteDir });
   try {
     await waitForHealth(port, 20000);
     const start = Date.now();
     let project;
-    while (Date.now() - start < 25000) {
-      project = await fetch(`http://127.0.0.1:${port}/api/projects/${created.id}`, {
-        headers: { authorization: 'Bearer adp-demo-owner-token' }
-      }).then(res => res.json());
-      if (project.state === 'READY_FOR_OWNER_REVIEW' || project.state === 'FAILED') break;
-      await new Promise(resolve => setTimeout(resolve, 150));
+    while (Date.now() - start < 45000) {
+      try {
+        project = await fetch(`http://127.0.0.1:${port}/api/projects/${created.id}`, {
+          headers: { authorization: 'Bearer adp-demo-owner-token' }
+        }).then(res => res.json());
+        if (project.state === 'READY_FOR_OWNER_REVIEW' || project.state === 'FAILED') break;
+      } catch {
+        await waitForHealth(port, 5000).catch(() => {});
+      }
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
-    assert.equal(project.state, 'READY_FOR_OWNER_REVIEW');
+    const ready = await fetch(`http://127.0.0.1:${port}/ready`, {
+      headers: { authorization: 'Bearer adp-demo-owner-token' }
+    }).then(res => res.json()).catch(error => ({ error: error.message }));
+    assert.equal(project.state, 'READY_FOR_OWNER_REVIEW', JSON.stringify({
+      state: project.state,
+      error: project.error,
+      deliveries: (project.deliveries || []).map(item => ({ id: item.id, status: item.status, version: item.version })),
+      history: (project.history || []).map(item => item.to).slice(-8),
+      ready
+    }));
     assert.equal(project.verificationLevel, 'MOCK');
     assert.ok(project.council.review1, 'Council review must not be skipped after restart');
     assert.ok(project.council.final, 'Final verification must not be skipped after restart');

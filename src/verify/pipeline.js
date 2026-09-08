@@ -32,9 +32,17 @@ export function verificationIdempotencyKey(project) {
 
 export function findReusableVerification(project) {
   const keySha = verificationIdempotencyKey(project).split(':').pop();
-  return (project.verificationRuns || []).find(item => (
+  const runs = project.verificationRuns || [];
+  const sameIteration = runs.find(item => (
     Number(item.iteration) === Number(project.iteration)
     && item.checkpointSha === keySha
+    && item.status === VerificationStatus.PASS
+    && item.completedAt
+  ));
+  if (sameIteration) return sameIteration;
+  if (!keySha || keySha === 'none') return null;
+  return runs.find(item => (
+    item.checkpointSha === keySha
     && item.status === VerificationStatus.PASS
     && item.completedAt
   )) || null;

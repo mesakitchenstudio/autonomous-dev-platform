@@ -7,6 +7,7 @@ import { isRuntimeStale, latestRuntimeRun } from '../runtime/pipeline.js';
 import { isVisualStale, latestVisualRun } from '../visual/pipeline.js';
 import { RuntimeStatus } from '../runtime/kinds.js';
 import { applySecurityGate } from '../security/gate.js';
+import { currentDelivery, deliveryIsCurrent } from '../delivery/lineage.js';
 
 export function specProductName(spec) {
   return spec?.productName || spec?.product?.name || null;
@@ -26,14 +27,16 @@ export function reviewForIteration(project, iteration) {
   return project?.council?.[`review${iteration}`] || null;
 }
 
-export function canEnterOwnerReview(project, { maxIterations = 12 } = {}) {
+export function canCompleteAutonomousWork(project, { maxIterations = 12 } = {}) {
   const reasons = [];
   if (!hasValidSpec(project)) reasons.push('missing_specification');
 
   const run = latestCursorRun(project);
   if (!run) reasons.push('no_cursor_execution');
 
-  const evidence = run?.evidence || project?.evidence || null;
+  const evidence = run?.evidence && project?.evidence
+    ? { ...run.evidence, ...project.evidence }
+    : (run?.evidence || project?.evidence || null);
   if (!isCanonicalEvidence(evidence)) reasons.push('missing_canonical_evidence');
   if (evidence?.execution?.status === EvidenceStatus.FAIL) reasons.push('execution_failed');
 
@@ -105,6 +108,28 @@ export function canEnterOwnerReview(project, { maxIterations = 12 } = {}) {
     ok: reasons.length === 0,
     reasons,
     verificationLevel: evidence?.verificationLevel || null
+  };
+}
+
+export function canEnterOwnerReview(project, { maxIterations = 12 } = {}) {
+  const autonomous = canCompleteAutonomousWork(project, { maxIterations });
+  const reasons = [...autonomous.reasons];
+  const delivery = currentDelivery(project);
+  if (!delivery || delivery.status !== 'READY') reasons.push('missing_delivery_snapshot');
+  else {
+    if (!delivery.checkpointSha) reasons.push('missing_final_checkpoint');
+    if (!deliveryIsCurrent(project, delivery)) reasons.push('stale_delivery_lineage');
+    if (!delivery.manifest || !delivery.manifestHash) reasons.push('missing_delivery_manifest');
+    if (!delivery.ownerReport) reasons.push('missing_owner_report');
+    if (!delivery.verificationReport) reasons.push('missing_verification_report');
+    if (delivery.secretScan !== 'PASS') reasons.push('delivery_secret_scan_failed');
+    const source = (delivery.artifacts || []).find(item => item.kind === 'SOURCE_ARCHIVE');
+    if (!source) reasons.push('missing_source_archive');
+  }
+  return {
+    ok: reasons.length === 0,
+    reasons,
+    verificationLevel: autonomous.verificationLevel
   };
 }
 

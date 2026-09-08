@@ -121,16 +121,25 @@ export class JobQueue {
         [planned.idempotencyKey]
       );
       if (existing.rows[0]) return { next: fromJobRow(existing.rows[0]) };
-      const inserted = await tx.query(`INSERT INTO jobs (
-        id, project_id, job_type, phase, iteration, idempotency_key, payload, status, priority,
-        attempts, max_attempts, available_at, required_capabilities
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,'QUEUED',100,0,$8,NOW(),$9::jsonb)
-      RETURNING *`, [
-        crypto.randomUUID(), project.id, planned.jobType, planned.phase, planned.iteration,
-        planned.idempotencyKey, JSON.stringify({}), this.maxAttempts,
-        JSON.stringify(planned.requiredCapabilities || [])
-      ]);
-      return { next: inserted.rows[0] ? fromJobRow(inserted.rows[0]) : null };
+      try {
+        const inserted = await tx.query(`INSERT INTO jobs (
+          id, project_id, job_type, phase, iteration, idempotency_key, payload, status, priority,
+          attempts, max_attempts, available_at, required_capabilities
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,'QUEUED',100,0,$8,NOW(),$9::jsonb)
+        RETURNING *`, [
+          crypto.randomUUID(), project.id, planned.jobType, planned.phase, planned.iteration,
+          planned.idempotencyKey, JSON.stringify({}), this.maxAttempts,
+          JSON.stringify(planned.requiredCapabilities || [])
+        ]);
+        return { next: inserted.rows[0] ? fromJobRow(inserted.rows[0]) : null };
+      } catch (error) {
+        if (!/duplicate key|unique/i.test(error.message || '')) throw error;
+        const existingKey = await tx.query(
+          `SELECT * FROM jobs WHERE idempotency_key = $1 ORDER BY created_at DESC LIMIT 1`,
+          [planned.idempotencyKey]
+        );
+        return { next: existingKey.rows[0] ? fromJobRow(existingKey.rows[0]) : null };
+      }
     });
   }
 
@@ -152,14 +161,23 @@ export class JobQueue {
     return { job: fromJobRow(updated.rows[0]), dead: false, retryable: true, availableAt, delayMs: delay };
   }
 
-  async recoverExpiredLeases() {
-    const recovered = await this.adapter.query(`UPDATE jobs SET
-      status = 'QUEUED',
-      locked_by = NULL,
-      lease_expires_at = NULL,
-      available_at = NOW()
-      WHERE status = 'RUNNING' AND lease_expires_at IS NOT NULL AND lease_expires_at <= NOW()
-      RETURNING *`);
+  async recoverExpiredLeases(exceptIds = []) {
+    const recovered = exceptIds.length
+      ? await this.adapter.query(`UPDATE jobs SET
+          status = 'QUEUED',
+          locked_by = NULL,
+          lease_expires_at = NULL,
+          available_at = NOW()
+          WHERE status = 'RUNNING' AND lease_expires_at IS NOT NULL AND lease_expires_at <= NOW()
+          AND NOT (id = ANY($1::uuid[]))
+          RETURNING *`, [exceptIds])
+      : await this.adapter.query(`UPDATE jobs SET
+          status = 'QUEUED',
+          locked_by = NULL,
+          lease_expires_at = NULL,
+          available_at = NOW()
+          WHERE status = 'RUNNING' AND lease_expires_at IS NOT NULL AND lease_expires_at <= NOW()
+          RETURNING *`);
     return recovered.rows.map(fromJobRow);
   }
 

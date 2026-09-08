@@ -1,1 +1,36 @@
-:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;color:#171713;background:#f5f2e9}*{box-sizing:border-box}body{margin:0}main{max-width:1100px;margin:auto;padding:56px 24px 96px}header{display:flex;justify-content:space-between;gap:30px;align-items:flex-start;margin-bottom:40px}.eyebrow{letter-spacing:.16em;font-size:12px;font-weight:800;color:#8b4a32}.lede{max-width:720px;color:#67645d;line-height:1.6}h1{font-family:Georgia,serif;font-size:clamp(40px,6vw,72px);font-weight:500;line-height:1;margin:.2em 0}.badge{border:1px solid #d5c8b8;border-radius:99px;padding:8px 12px;font-size:11px;font-weight:800}.composer,.card{background:#fffdfa;border:1px solid #ded7cb;border-radius:20px;padding:24px;box-shadow:0 10px 30px #4a3f3220}.composer{display:grid;gap:12px;margin-bottom:44px}label{font-weight:800}.small{font-size:12px;margin-top:8px;color:#6b675f}textarea,input{width:100%;border:1px solid #ccc1b2;background:#fff;border-radius:12px;padding:14px;font:inherit}textarea{min-height:150px;resize:vertical}button{border:0;border-radius:12px;padding:13px 18px;background:#a45237;color:white;font-weight:800;cursor:pointer}button.secondary{background:transparent;color:#5b554c;border:1px solid #d5c8b8}.section-title{display:flex;justify-content:space-between;align-items:center}.grid{display:grid;gap:16px}.card{display:grid;grid-template-columns:1fr auto;gap:14px}.card h3{margin:0 0 8px;font-family:Georgia,serif;font-size:26px}.meta{color:#716c63;font-size:13px}.status{font-size:12px;font-weight:900;letter-spacing:.08em}.ready{color:#2e7445}.failed{color:#a23434}.progress{color:#8b4a32}.detail{grid-column:1/-1;border-top:1px solid #e7e0d5;padding-top:12px;color:#5f5b54;white-space:pre-wrap}#error{color:#9a2f2f;margin:0}@media(max-width:700px){header{display:block}.badge{display:inline-block;margin-top:10px}.card{grid-template-columns:1fr}}
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;color:#171713;background:#f5f2e9}
+*{box-sizing:border-box}body{margin:0}
+main{max-width:980px;margin:auto;padding:48px 20px 96px}
+header{display:flex;justify-content:space-between;gap:30px;align-items:flex-start;margin-bottom:32px}
+.eyebrow{letter-spacing:.16em;font-size:12px;font-weight:800;color:#8b4a32}
+.lede{max-width:720px;color:#67645d;line-height:1.6}
+h1{font-family:Georgia,serif;font-size:clamp(36px,5vw,64px);font-weight:500;line-height:1.05;margin:.2em 0}
+.badge{border:1px solid #d5c8b8;border-radius:99px;padding:8px 12px;font-size:11px;font-weight:800}
+.composer,.card,.inbox{background:#fffdfa;border:1px solid #ded7cb;border-radius:20px;padding:24px;box-shadow:0 10px 30px #4a3f3220}
+.composer{display:grid;gap:12px;margin-bottom:36px}
+label{font-weight:800}.small{font-size:12px;margin-top:8px;color:#6b675f}
+textarea,input,textarea.feedback{width:100%;border:1px solid #ccc1b2;background:#fff;border-radius:12px;padding:14px;font:inherit}
+textarea{min-height:140px;resize:vertical}textarea.feedback{min-height:90px}
+button{border:0;border-radius:12px;padding:13px 18px;background:#a45237;color:white;font-weight:800;cursor:pointer}
+button.secondary{background:transparent;color:#5b554c;border:1px solid #d5c8b8}
+button.quiet{background:#efe8dc;color:#3d3933}
+.section-title{display:flex;justify-content:space-between;align-items:center}
+.grid{display:grid;gap:16px}
+.card{display:grid;gap:14px}
+.card h3{margin:0 0 6px;font-family:Georgia,serif;font-size:28px}
+.meta{color:#716c63;font-size:14px;line-height:1.5}
+.status{font-size:12px;font-weight:900;letter-spacing:.08em}
+.ready{color:#2e7445}.failed{color:#a23434}.progress{color:#8b4a32}.done{color:#2e7445}
+.headline{font-size:18px;color:#3f3b35}
+.actions{display:flex;flex-wrap:wrap;gap:10px}
+.checks{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+.checks li{color:#3f3b35}
+.shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+.shots img{width:100%;border-radius:12px;border:1px solid #e7e0d5;background:#eee}
+.limits{color:#5f5b54;margin:0;padding-left:18px}
+details.tech{border-top:1px solid #e7e0d5;padding-top:12px;color:#5f5b54}
+details.tech summary{cursor:pointer;font-weight:800}
+.inbox{margin-bottom:20px}
+.inbox a{color:#a45237;font-weight:700}
+#error{color:#9a2f2f;margin:0}
+@media(max-width:700px){header{display:block}.badge{display:inline-block;margin-top:10px}.actions{display:grid}}

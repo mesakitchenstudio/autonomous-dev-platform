@@ -1,5 +1,6 @@
 import { ProjectState, isOwnerTerminal } from '../orchestrator/states.js';
 import { needsProvisioning, provisioningSucceeded, provisioningIdempotencyKey } from '../provision/plan.js';
+import { deliveryIdempotencyKey } from '../delivery/lineage.js';
 import { resolveSecurityProfile, isHardenedProfile } from '../security/policy.js';
 import { WorkerCapability } from '../capabilities/kinds.js';
 
@@ -11,7 +12,8 @@ export const JobType = Object.freeze({
   RUNTIME_VERIFICATION: 'RUNTIME_VERIFICATION',
   VISUAL_VERIFICATION: 'VISUAL_VERIFICATION',
   COUNCIL_REVIEW: 'COUNCIL_REVIEW',
-  FINAL_VERIFICATION: 'FINAL_VERIFICATION'
+  FINAL_VERIFICATION: 'FINAL_VERIFICATION',
+  DELIVERY_PREPARATION: 'DELIVERY_PREPARATION'
 });
 
 export const JobStatus = Object.freeze({
@@ -36,36 +38,53 @@ export function nextJobType(project) {
   if (project.state === ProjectState.VISUAL_VERIFICATION) return JobType.VISUAL_VERIFICATION;
   if (project.state === ProjectState.COUNCIL_REVIEW) return JobType.COUNCIL_REVIEW;
   if (project.state === ProjectState.FINAL_VERIFICATION) return JobType.FINAL_VERIFICATION;
+  if (project.state === ProjectState.DELIVERY_PREPARATION) return JobType.DELIVERY_PREPARATION;
+  if (project.state === ProjectState.OWNER_CHANGES_REQUESTED) return JobType.COUNCIL_DISCOVERY;
   return null;
 }
 
+function feedbackCycle(project) {
+  return (project.ownerReviews || []).filter(item => item.decision === 'CHANGES_REQUESTED').length;
+}
+
+function cycleSuffix(project) {
+  const cycle = feedbackCycle(project);
+  return cycle > 0 ? `:fb:${cycle}` : '';
+}
+
 export function jobIdempotencyKey(project, jobType) {
-  if (jobType === JobType.COUNCIL_DISCOVERY) return `project:${project.id}:discovery`;
+  const fb = cycleSuffix(project);
+  if (jobType === JobType.COUNCIL_DISCOVERY) {
+    return feedbackCycle(project) > 0
+      ? `project:${project.id}:discovery:feedback:${feedbackCycle(project)}`
+      : `project:${project.id}:discovery`;
+  }
   if (jobType === JobType.PROJECT_PROVISIONING) {
     return provisioningIdempotencyKey(project, project.provisioningPlan);
   }
   if (jobType === JobType.CURSOR_EXECUTION) {
     const iteration = project.state === ProjectState.SPECIFICATION_READY ? (project.iteration || 0) + 1 : (project.iteration || 1);
-    return `project:${project.id}:cursor:${iteration}`;
+    return `project:${project.id}:cursor:${iteration}${fb}`;
   }
   if (jobType === JobType.PLATFORM_VERIFICATION) {
     const last = (project.cursorRuns || []).at(-1);
     const sha = last?.checkpointSha || last?.git?.checkpointSha || last?.git?.afterSha || 'none';
-    return `project:${project.id}:verification:${project.iteration || 1}:${sha}`;
+    return `project:${project.id}:verification:${project.iteration || 1}:${sha}${fb}`;
   }
   if (jobType === JobType.RUNTIME_VERIFICATION) {
     const last = (project.cursorRuns || []).at(-1);
     const sha = last?.checkpointSha || last?.git?.checkpointSha || last?.git?.afterSha || 'none';
     const artifact = latestArtifactHash(project) || 'none';
-    return `project:${project.id}:runtime:${project.iteration || 1}:${sha}:${artifact}`;
+    return `project:${project.id}:runtime:${project.iteration || 1}:${sha}:${artifact}${fb}`;
   }
   if (jobType === JobType.VISUAL_VERIFICATION) {
     const runtime = (project.runtimeRuns || []).at(-1);
     const setHash = runtime?.screenshotSetHash || screenshotSetHash(runtime) || 'none';
-    return `project:${project.id}:visual:${runtime?.id || 'none'}:${setHash}`;
+    return `project:${project.id}:visual:${runtime?.id || 'none'}:${setHash}${fb}`;
   }
-  if (jobType === JobType.COUNCIL_REVIEW) return `project:${project.id}:review:${project.iteration || 1}`;
-  if (jobType === JobType.FINAL_VERIFICATION) return `project:${project.id}:final:${(project.cursorRuns || []).length}`;
+  if (jobType === JobType.COUNCIL_REVIEW) return `project:${project.id}:review:${project.iteration || 1}${fb}`;
+  if (jobType === JobType.FINAL_VERIFICATION) return `project:${project.id}:final:${(project.cursorRuns || []).length}${fb}`;
+  if (jobType === JobType.DELIVERY_PREPARATION) return deliveryIdempotencyKey(project);
   throw new Error(`Unknown job type ${jobType}`);
 }
 

@@ -31,6 +31,13 @@ export function createProjectRecord({ idea, projectPath, demo = false, id } = {}
     verificationLevel: demo ? 'MOCK' : null,
     permissionLog: [],
     delivery: null,
+    deliveries: [],
+    ownerReviews: [],
+    ownerFeedback: [],
+    notifications: [],
+    notificationDeliveries: [],
+    reviewSessions: [],
+    completion: null,
     error: null,
     errors: [],
     demo: Boolean(demo),
@@ -70,6 +77,7 @@ export class JsonStore {
     return JSON.parse(raw.replace(/^\uFEFF/, ''));
   }
   async get(id) { return this.readJson(this.file(id)); }
+  async appendEvent() { return null; }
   async list() {
     await this.init();
     const files = (await fs.readdir(this.dataDir)).filter(x => x.endsWith('.json') && !x.endsWith('.tmp'));

@@ -38,7 +38,7 @@ export class Worker {
     if (this.stopping || this.ticking) return;
     this.ticking = true;
     try {
-    const recovered = await this.queue.recoverExpiredLeases();
+    const recovered = await this.queue.recoverExpiredLeases([...this.active.keys()]);
     for (const job of recovered) {
       await this.store.appendEvent(job.projectId, 'recovery.performed', {
         jobId: job.id,
@@ -138,6 +138,7 @@ function eventForStart(jobType) {
   if (jobType === JobType.VISUAL_VERIFICATION) return 'visual.started';
   if (jobType === JobType.COUNCIL_REVIEW) return 'review.started';
   if (jobType === JobType.FINAL_VERIFICATION) return 'final.started';
+  if (jobType === JobType.DELIVERY_PREPARATION) return 'delivery.started';
   return 'job.started';
 }
 
@@ -150,6 +151,7 @@ function eventForComplete(jobType, project) {
   if (jobType === JobType.VISUAL_VERIFICATION) return 'visual.completed';
   if (project.state === ProjectState.CURSOR_EXECUTING) return 'correction.requested';
   if (project.state === ProjectState.READY_FOR_OWNER_REVIEW) return 'project.ready';
+  if (jobType === JobType.DELIVERY_PREPARATION) return 'delivery.completed';
   return 'job.completed';
 }
 

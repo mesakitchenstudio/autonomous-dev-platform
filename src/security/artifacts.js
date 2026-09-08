@@ -10,7 +10,9 @@ export function collectProjectArtifacts(project) {
       ...(run.screenshots || []),
       ...(run.artifacts || [])
     ]),
-    ...(project.provisioningRuns || []).flatMap(run => run.artifacts || [])
+    ...(project.provisioningRuns || []).flatMap(run => run.artifacts || []),
+    ...(project.deliveries || []).flatMap(item => item.artifacts || []),
+    ...(project.deliveryArtifacts || [])
   ].filter(item => item?.id);
 }
 
@@ -32,8 +34,9 @@ export function resolveProjectArtifact(project, artifactId) {
       retryable: false
     });
   }
-  if (found.path) {
-    const canonical = resolveCanonicalSync(found.path);
+  const stored = found.path || found.storedPath;
+  if (stored) {
+    const canonical = resolveCanonicalSync(stored);
     const roots = [artifactRoot(), project.repository?.workspacePath].filter(Boolean);
     const ok = roots.some(root => isInsideRoot(canonical, resolveCanonicalSync(root)));
     if (!ok) {
@@ -45,7 +48,7 @@ export function resolveProjectArtifact(project, artifactId) {
       });
     }
   }
-  return found;
+  return { ...found, path: stored || found.path };
 }
 
 export function artifactPublicView(artifact) {

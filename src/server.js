@@ -15,6 +15,11 @@ import { resolveProjectArtifact } from './security/artifacts.js';
 import { SecurityEventType } from './security/kinds.js';
 import { recordSecurityEvent } from './security/events.js';
 import { cleanupOrphanSandboxes } from './sandbox/cleanup.js';
+import { startReviewSession, expireSessions, stopReviewSession } from './delivery/session.js';
+import { markNotificationRead } from './notifications/index.js';
+import { ownerDeliveryView } from './delivery/prepare.js';
+import { currentDelivery } from './delivery/lineage.js';
+import { ProjectState } from './orchestrator/states.js';
 
 loadDotEnv();
 bootstrapOwnerToken();
@@ -106,9 +111,34 @@ const server = http.createServer(async (req, res) => {
         return json(res, 503, { ok: false, error: error.message });
       }
     }
+    if (req.method === 'GET' && url.pathname === '/api/notifications') {
+      if (!requireOwner(req, res, 'project.read')) return;
+      const projects = await store.list();
+      const items = projects.flatMap(project => (project.notifications || []).map(item => ({
+        ...item,
+        projectName: project.delivery?.productName || project.council?.discovery?.spec?.productName || 'Project'
+      })));
+      items.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+      return json(res, 200, items);
+    }
+    const readNote = url.pathname.match(/^\/api\/notifications\/([^/]+)\/read$/);
+    if (req.method === 'POST' && readNote) {
+      if (!requireOwner(req, res, 'project.read')) return;
+      const projects = await store.list();
+      for (const project of projects) {
+        const found = markNotificationRead(project, readNote[1]);
+        if (found) {
+          if (found.projectId && found.projectId !== project.id) return json(res, 403, { error: 'not authorized', code: ErrorCode.AUTHZ_DENIED });
+          await store.save(project);
+          return json(res, 200, found);
+        }
+      }
+      return json(res, 404, { error: 'not found' });
+    }
     if (req.method === 'GET' && url.pathname === '/api/projects') {
       if (!requireOwner(req, res, 'project.list')) return;
-      return json(res, 200, await store.list());
+      const list = await store.list();
+      return json(res, 200, list.map(projectView));
     }
     if (req.method === 'POST' && url.pathname === '/api/projects') {
       if (!requireOwner(req, res, 'project.create')) return;
@@ -128,14 +158,72 @@ const server = http.createServer(async (req, res) => {
       const project = await store.get(artifact[1]);
       const found = resolveProjectArtifact(project, artifact[2]);
       if (!found.path) return json(res, 404, { error: 'artifact has no stored path' });
+      recordSecurityEvent(SecurityEventType.OWNER_ARTIFACT_DOWNLOADED, { projectId: project.id, artifactId: found.id }, { store });
       const data = await fs.readFile(found.path);
-      res.writeHead(200, { 'content-type': 'application/octet-stream' });
+      const name = sanitizeFileName(found.fileName || found.name || path.basename(found.path));
+      res.writeHead(200, {
+        'content-type': found.mimeType || 'application/octet-stream',
+        'content-disposition': `attachment; filename="${name}"`
+      });
       return res.end(data);
     }
     const match = url.pathname.match(/^\/api\/projects\/([^/]+)$/);
     if (req.method === 'GET' && match) {
       if (!requireOwner(req, res, 'project.read')) return;
-      return json(res, 200, await store.get(match[1]));
+      let project = await store.get(match[1]);
+      if (project.state === ProjectState.DELIVERY_PREPARATION) {
+        await orchestrator.finishDelivery(project).catch(() => {});
+        project = await store.get(match[1]);
+      }
+      if (project.state === ProjectState.READY_FOR_OWNER_REVIEW) {
+        recordSecurityEvent(SecurityEventType.OWNER_REVIEW_OPENED, { projectId: project.id, deliveryId: currentDelivery(project)?.id }, { store });
+      }
+      expireSessions(project);
+      return json(res, 200, projectView(project));
+    }
+    const approve = url.pathname.match(/^\/api\/projects\/([^/]+)\/approve$/);
+    if (req.method === 'POST' && approve) {
+      if (!requireOwner(req, res, 'project.approve')) return;
+      try {
+        return json(res, 200, projectView(await orchestrator.approve(approve[1])));
+      } catch (error) {
+        const status = error?.code === ErrorCode.OWNER_DECISION_CONFLICT || error?.code === ErrorCode.STALE_DELIVERY ? 409 : 500;
+        return json(res, status, { error: error.message, code: error.code });
+      }
+    }
+    const changes = url.pathname.match(/^\/api\/projects\/([^/]+)\/changes$/);
+    if (req.method === 'POST' && changes) {
+      if (!requireOwner(req, res, 'project.changes')) return;
+      try {
+        const b = await body(req);
+        return json(res, 202, projectView(await orchestrator.requestChanges(changes[1], b.feedback)));
+      } catch (error) {
+        const status = error?.code === ErrorCode.OWNER_DECISION_CONFLICT || error?.code === ErrorCode.STALE_DELIVERY || error?.code === ErrorCode.INVALID_OWNER_FEEDBACK ? 409 : 500;
+        return json(res, status, { error: error.message, code: error.code });
+      }
+    }
+    const session = url.pathname.match(/^\/api\/projects\/([^/]+)\/review-session$/);
+    if (req.method === 'POST' && session) {
+      if (!requireOwner(req, res, 'project.review')) return;
+      const project = await store.get(session[1]);
+      expireSessions(project);
+      const started = await startReviewSession(project);
+      await store.save(project);
+      recordSecurityEvent(SecurityEventType.OWNER_REVIEW_SESSION_STARTED, { projectId: project.id, sessionId: started.id }, { store });
+      return json(res, 201, started);
+    }
+    const stopSession = url.pathname.match(/^\/api\/review-sessions\/([^/]+)\/stop$/);
+    if (req.method === 'POST' && stopSession) {
+      if (!requireOwner(req, res, 'project.review')) return;
+      const projects = await store.list();
+      for (const project of projects) {
+        const found = (project.reviewSessions || []).find(item => item.id === stopSession[1]);
+        if (!found) continue;
+        await stopReviewSession(project, stopSession[1]);
+        await store.save(project);
+        return json(res, 200, found);
+      }
+      return json(res, 404, { error: 'not found' });
     }
     const retry = url.pathname.match(/^\/api\/projects\/([^/]+)\/retry$/);
     if (req.method === 'POST' && retry) {
@@ -183,6 +271,27 @@ if (role !== 'worker') {
 } else if (worker) {
   await worker.start();
   console.log(`Autonomous worker ${worker.workerId} (${runtime.engine}) polling jobs.`);
+}
+
+function projectView(project) {
+  expireSessions(project);
+  return {
+    ...project,
+    delivery: ownerDeliveryView(project) || project.delivery,
+    ownerStage: ownerStage(project)
+  };
+}
+
+function ownerStage(project) {
+  if (project.state === ProjectState.READY_FOR_OWNER_REVIEW) return 'ready';
+  if (project.state === ProjectState.DONE || project.state === ProjectState.OWNER_APPROVED) return 'done';
+  if (project.state === ProjectState.FAILED) return 'failed';
+  if (project.state === ProjectState.OWNER_CHANGES_REQUESTED) return 'changes';
+  return 'active';
+}
+
+function sanitizeFileName(name) {
+  return String(name || 'download').replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 120);
 }
 
 export { runtime, server, worker };

@@ -1,5 +1,40 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Autonomous Development</title><link rel="stylesheet" href="/styles.css"></head><body>
-<main><header><div><p class="eyebrow">AI ENGINEERING COUNCIL</p><h1>Idea → finished application</h1><p class="lede">Submit product intent once. The Council, Cursor, automated review, and correction loops run internally. You return only for final owner review.</p></div><span id="mode" class="badge">AUTONOMOUS</span></header>
-<section class="composer"><label for="idea">What should be built?</label><textarea id="idea" placeholder="Example: Build a cross-platform inventory application for small warehouses with barcode scanning, roles, audit history, offline support, and an admin dashboard."></textarea><label class="small" for="token">Owner API token</label><input id="token" type="password" autocomplete="off" placeholder="Required Bearer token"><label class="small" for="path">Existing repository path (optional for local ACP)</label><input id="path" placeholder="/path/to/existing/project"><button id="submit">Start autonomous development</button><p id="error"></p></section>
-<section><div class="section-title"><h2>Projects</h2><button id="refresh" class="secondary">Refresh</button></div><div id="projects" class="grid"></div></section>
-</main><script src="/app.js"></script></body></html>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Autonomous Development</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <p class="eyebrow">AUTONOMOUS DEVELOPMENT</p>
+      <h1>Submit an idea. Review when it is ready.</h1>
+      <p class="lede">You describe the product. The platform designs, implements, verifies, and packages it. You return only to approve or request changes.</p>
+    </div>
+    <span id="mode" class="badge">OWNER</span>
+  </header>
+  <section id="inbox" class="inbox" hidden></section>
+  <section class="composer">
+    <label for="idea">What should be built?</label>
+    <textarea id="idea" placeholder="Example: Build a simple recipe web application where users can browse recipes, open a recipe, search recipes, and save favorites."></textarea>
+    <label class="small" for="token">Owner API token</label>
+    <input id="token" type="password" autocomplete="off" placeholder="Required Bearer token">
+    <label class="small" for="path">Existing repository path (optional)</label>
+    <input id="path" placeholder="/path/to/existing/project">
+    <button id="submit">Start autonomous development</button>
+    <p id="error"></p>
+  </section>
+  <section>
+    <div class="section-title">
+      <h2>Projects</h2>
+      <button id="refresh" class="secondary">Refresh</button>
+    </div>
+    <div id="projects" class="grid"></div>
+  </section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

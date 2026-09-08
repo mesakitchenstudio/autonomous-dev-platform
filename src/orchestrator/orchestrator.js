@@ -1,7 +1,14 @@
 import { ProjectState, assertTransition, isBootResumable, isOwnerTerminal } from './states.js';
 import { ErrorCode, PlatformError, toErrorRecord } from './errors.js';
 import { withTimeout } from './timeout.js';
-import { canEnterOwnerReview, hasValidSpec, latestCursorRun, specProductName } from './gate.js';
+import { canCompleteAutonomousWork, canEnterOwnerReview, hasValidSpec, latestCursorRun, specProductName } from './gate.js';
+import { prepareDeliverySnapshot, ownerDeliveryView } from '../delivery/prepare.js';
+import { currentDelivery } from '../delivery/lineage.js';
+import { recordOwnerDecision, withProjectLock } from '../delivery/decisions.js';
+import { NotificationService } from '../notifications/index.js';
+import { OwnerDecision } from '../delivery/kinds.js';
+import { SecurityEventType } from '../security/kinds.js';
+import { recordSecurityEvent } from '../security/events.js';
 import { evidenceFromCursorResult, EvidenceStatus } from './evidence.js';
 import { beginOperation, completeOperation, failOperation, currentOperation, OperationType, OperationStatus } from './checkpoint.js';
 import { intEnv } from '../util/env.js';
@@ -17,7 +24,8 @@ import {
   latestVerificationRun,
   slimVerificationReviewInput,
   findReusableVerification,
-  correctionPromptFromVerification
+  correctionPromptFromVerification,
+  evidenceFromVerification
 } from '../verify/pipeline.js';
 import { cancelActiveVerification } from '../verify/runner.js';
 import {
@@ -57,6 +65,7 @@ export class Orchestrator {
     this.cursorTimeoutMs = cursorTimeoutMs ?? intEnv('CURSOR_REQUEST_TIMEOUT_MS', 600000);
     this.queue = queue || null;
     this.running = new Set();
+    this.notifications = new NotificationService();
   }
 
   cancelVerification(reason = 'cancelled') {
@@ -88,7 +97,17 @@ export class Orchestrator {
 
   async recoverOnBoot() {
     const projects = await this.store.list();
-    if (this.queue) return this.queue.reconcile(projects.filter(project => isBootResumable(project.state)));
+    for (const project of projects) {
+      if (project.state === ProjectState.DELIVERY_PREPARATION) {
+        try {
+          await this.finishDelivery(project);
+        } catch (error) {
+          project.error = toErrorRecord(error, ProjectState.DELIVERY_PREPARATION);
+          await this.store.save(project).catch(() => {});
+        }
+      }
+    }
+    if (this.queue) return this.queue.reconcile((await this.store.list()).filter(project => isBootResumable(project.state)));
     const resumed = [];
     for (const project of projects) {
       if (isBootResumable(project.state) && this.start(project.id)) resumed.push(project.id);
@@ -134,18 +153,21 @@ export class Orchestrator {
     if (isOwnerTerminal(project.state) || project.state === ProjectState.FAILED) return project;
     if (job.jobType === JobType.COUNCIL_DISCOVERY) {
       if (project.state === ProjectState.SPECIFICATION_READY || project.state === ProjectState.PROJECT_PROVISIONING) return project;
-      await this.ensureDiscovery(project);
+      if (project.state === ProjectState.OWNER_CHANGES_REQUESTED) {
+        await this.transition(project, ProjectState.COUNCIL_DISCOVERY, 'Interpreting owner feedback');
+      }
+      await this.ensureDiscovery(await this.store.get(job.projectId));
       return this.store.get(job.projectId);
     }
     if (job.jobType === JobType.PROJECT_PROVISIONING) {
-      if ([ProjectState.CURSOR_EXECUTING, ProjectState.PLATFORM_VERIFICATION, ProjectState.RUNTIME_VERIFICATION, ProjectState.VISUAL_VERIFICATION, ProjectState.COUNCIL_REVIEW, ProjectState.FINAL_VERIFICATION].includes(project.state) || isOwnerTerminal(project.state)) return project;
+      if ([ProjectState.CURSOR_EXECUTING, ProjectState.PLATFORM_VERIFICATION, ProjectState.RUNTIME_VERIFICATION, ProjectState.VISUAL_VERIFICATION, ProjectState.COUNCIL_REVIEW, ProjectState.FINAL_VERIFICATION, ProjectState.DELIVERY_PREPARATION].includes(project.state) || isOwnerTerminal(project.state)) return project;
       if (project.state === ProjectState.SPECIFICATION_READY || project.state === ProjectState.PROJECT_PROVISIONING) {
         await this.finishProvisioning(await this.store.get(job.projectId), ctx);
       }
       return this.store.get(job.projectId);
     }
     if (job.jobType === JobType.CURSOR_EXECUTION) {
-      if ([ProjectState.PLATFORM_VERIFICATION, ProjectState.RUNTIME_VERIFICATION, ProjectState.VISUAL_VERIFICATION, ProjectState.COUNCIL_REVIEW, ProjectState.FINAL_VERIFICATION].includes(project.state)) return project;
+      if ([ProjectState.PLATFORM_VERIFICATION, ProjectState.RUNTIME_VERIFICATION, ProjectState.VISUAL_VERIFICATION, ProjectState.COUNCIL_REVIEW, ProjectState.FINAL_VERIFICATION, ProjectState.DELIVERY_PREPARATION].includes(project.state)) return project;
       if (project.state === ProjectState.SPECIFICATION_READY) {
         if (needsProvisioning(project) && !provisioningSucceeded(project)) {
           await this.finishProvisioning(project, ctx);
@@ -158,7 +180,7 @@ export class Orchestrator {
       return this.store.get(job.projectId);
     }
     if (job.jobType === JobType.PLATFORM_VERIFICATION) {
-      if ([ProjectState.RUNTIME_VERIFICATION, ProjectState.VISUAL_VERIFICATION, ProjectState.COUNCIL_REVIEW, ProjectState.FINAL_VERIFICATION].includes(project.state) || isOwnerTerminal(project.state)) return project;
+      if ([ProjectState.RUNTIME_VERIFICATION, ProjectState.VISUAL_VERIFICATION, ProjectState.COUNCIL_REVIEW, ProjectState.FINAL_VERIFICATION, ProjectState.DELIVERY_PREPARATION].includes(project.state) || isOwnerTerminal(project.state)) return project;
       if (project.state === ProjectState.CURSOR_EXECUTING) await this.finishOrReplayCursor(project, ctx);
       if ((await this.store.get(job.projectId)).state === ProjectState.PLATFORM_VERIFICATION) {
         await this.finishPlatformVerification(await this.store.get(job.projectId), ctx);
@@ -166,7 +188,7 @@ export class Orchestrator {
       return this.store.get(job.projectId);
     }
     if (job.jobType === JobType.RUNTIME_VERIFICATION) {
-      if ([ProjectState.VISUAL_VERIFICATION, ProjectState.COUNCIL_REVIEW, ProjectState.FINAL_VERIFICATION].includes(project.state) || isOwnerTerminal(project.state)) return project;
+      if ([ProjectState.VISUAL_VERIFICATION, ProjectState.COUNCIL_REVIEW, ProjectState.FINAL_VERIFICATION, ProjectState.DELIVERY_PREPARATION].includes(project.state) || isOwnerTerminal(project.state)) return project;
       if (project.state === ProjectState.PLATFORM_VERIFICATION) await this.finishPlatformVerification(await this.store.get(job.projectId), ctx);
       if ((await this.store.get(job.projectId)).state === ProjectState.RUNTIME_VERIFICATION) {
         await this.finishRuntimeVerification(await this.store.get(job.projectId), ctx);
@@ -174,7 +196,7 @@ export class Orchestrator {
       return this.store.get(job.projectId);
     }
     if (job.jobType === JobType.VISUAL_VERIFICATION) {
-      if ([ProjectState.COUNCIL_REVIEW, ProjectState.FINAL_VERIFICATION].includes(project.state) || isOwnerTerminal(project.state)) return project;
+      if ([ProjectState.COUNCIL_REVIEW, ProjectState.FINAL_VERIFICATION, ProjectState.DELIVERY_PREPARATION].includes(project.state) || isOwnerTerminal(project.state)) return project;
       if (project.state === ProjectState.RUNTIME_VERIFICATION) await this.finishRuntimeVerification(await this.store.get(job.projectId), ctx);
       if ((await this.store.get(job.projectId)).state === ProjectState.VISUAL_VERIFICATION) {
         await this.finishVisualVerification(await this.store.get(job.projectId), ctx);
@@ -182,13 +204,25 @@ export class Orchestrator {
       return this.store.get(job.projectId);
     }
     if (job.jobType === JobType.COUNCIL_REVIEW) {
-      if ([ProjectState.FINAL_VERIFICATION, ProjectState.CURSOR_EXECUTING, ProjectState.PLATFORM_VERIFICATION, ProjectState.RUNTIME_VERIFICATION, ProjectState.VISUAL_VERIFICATION].includes(project.state)) return project;
+      if ([ProjectState.FINAL_VERIFICATION, ProjectState.DELIVERY_PREPARATION, ProjectState.CURSOR_EXECUTING, ProjectState.PLATFORM_VERIFICATION, ProjectState.RUNTIME_VERIFICATION, ProjectState.VISUAL_VERIFICATION].includes(project.state)) return project;
       await this.finishReview(project);
       return this.store.get(job.projectId);
     }
     if (job.jobType === JobType.FINAL_VERIFICATION) {
       if (isOwnerTerminal(project.state) || project.state === ProjectState.CURSOR_EXECUTING) return project;
+      if (project.state === ProjectState.DELIVERY_PREPARATION) {
+        await this.finishDelivery(project);
+        return this.store.get(job.projectId);
+      }
       await this.finishFinal(project);
+      return this.store.get(job.projectId);
+    }
+    if (job.jobType === JobType.DELIVERY_PREPARATION) {
+      if (isOwnerTerminal(project.state)) return project;
+      if (project.state === ProjectState.FINAL_VERIFICATION) await this.finishFinal(project);
+      if ((await this.store.get(job.projectId)).state === ProjectState.DELIVERY_PREPARATION) {
+        await this.finishDelivery(await this.store.get(job.projectId));
+      }
       return this.store.get(job.projectId);
     }
     throw new PlatformError({
@@ -255,6 +289,14 @@ export class Orchestrator {
           await this.finishFinal(project);
           continue;
         }
+        if (project.state === ProjectState.DELIVERY_PREPARATION) {
+          await this.finishDelivery(project);
+          continue;
+        }
+        if (project.state === ProjectState.OWNER_CHANGES_REQUESTED) {
+          await this.transition(project, ProjectState.COUNCIL_DISCOVERY, 'Interpreting owner feedback');
+          continue;
+        }
         throw new PlatformError({
           code: ErrorCode.RECOVERY_FAILED,
           message: `No recovery handler for state ${project.state}`,
@@ -287,8 +329,13 @@ export class Orchestrator {
       await this.transition(project, ProjectState.COUNCIL_DISCOVERY, 'Council analyzing product idea');
     }
     if (hasValidSpec(project)) {
+      if (project.pendingOwnerFeedback) {
+        await this.applyOwnerFeedback(project);
+      }
       if (project.state === ProjectState.COUNCIL_DISCOVERY) {
-        await this.transition(project, ProjectState.SPECIFICATION_READY, 'Recovered completed specification', {
+        await this.transition(project, ProjectState.SPECIFICATION_READY, project.ownerReviews?.length
+          ? 'Owner feedback interpreted; continuing autonomous work'
+          : 'Recovered completed specification', {
           productName: specProductName(project.council.discovery.spec)
         });
       }
@@ -459,7 +506,10 @@ export class Orchestrator {
   async finishPlatformVerification(project, ctx = {}) {
     const reused = findReusableVerification(project);
     if (reused) {
-      project.evidence = reused.evidencePatch || project.evidence;
+      const patch = reused.evidencePatch || evidenceFromVerification(project, reused);
+      project.evidence = patch || project.evidence;
+      const last = latestCursorRun(project);
+      if (last && project.evidence) last.evidence = project.evidence;
       if ((reused.evidencePatch || project.evidence)?.verificationLevel !== 'MOCK') {
         project.verificationLevel = reused.evidencePatch?.verificationLevel || project.verificationLevel;
       }
@@ -469,6 +519,8 @@ export class Orchestrator {
     }
     const existing = latestVerificationRun(project, project.iteration);
     if (existing?.completedAt && existing.checkpointSha === (latestCursorRun(project)?.checkpointSha || existing.checkpointSha)) {
+      const last = latestCursorRun(project);
+      if (last && (existing.evidencePatch || project.evidence)) last.evidence = existing.evidencePatch || project.evidence;
       await this.afterPlatformVerification(project, existing, ctx);
       return;
     }
@@ -933,32 +985,141 @@ export class Orchestrator {
       await this.requestCursorRun(project, { increment: true, prompt: nextPrompt, execute: !this.queue, ctx: this.executionContext });
       return;
     }
-    await this.enterOwnerReview(project);
+    await this.enterDeliveryPreparation(project);
   }
 
-  async enterOwnerReview(project) {
-    const gate = canEnterOwnerReview(project, { maxIterations: this.maxIterations });
+  async enterDeliveryPreparation(project) {
+    const gate = canCompleteAutonomousWork(project, { maxIterations: this.maxIterations });
     if (!gate.ok) {
       throw new PlatformError({
         code: ErrorCode.COMPLETION_GATE_REJECTED,
-        message: `Completion gate rejected READY_FOR_OWNER_REVIEW: ${gate.reasons.join(', ')}`,
+        message: `Completion gate rejected delivery preparation: ${gate.reasons.join(', ')}`,
         phase: ProjectState.FINAL_VERIFICATION,
         retryable: true,
         details: { reasons: gate.reasons }
       });
     }
+    if (project.state !== ProjectState.DELIVERY_PREPARATION) {
+      await this.transition(project, ProjectState.DELIVERY_PREPARATION, 'Preparing immutable owner delivery snapshot');
+    }
+    return this.finishDelivery(project);
+  }
+
+  async finishDelivery(project) {
+    const workspacePath = await this.workspace?.ensure?.(project).catch(() => project.repository?.workspacePath || project.projectPath);
+    const prepared = await prepareDeliverySnapshot(project, { workspacePath });
+    const delivery = prepared.delivery;
+    const gate = canEnterOwnerReview(project, { maxIterations: this.maxIterations });
+    if (!gate.ok) {
+      throw new PlatformError({
+        code: ErrorCode.COMPLETION_GATE_REJECTED,
+        message: `Completion gate rejected READY_FOR_OWNER_REVIEW: ${gate.reasons.join(', ')}`,
+        phase: ProjectState.DELIVERY_PREPARATION,
+        retryable: true,
+        details: { reasons: gate.reasons }
+      });
+    }
     project.delivery = {
+      ...ownerDeliveryView(project),
       status: 'READY_FOR_OWNER_REVIEW',
       productName: specProductName(project.council.discovery.spec),
-      summary: project.council.final.decision.summary,
+      summary: project.council.final?.decision?.summary || 'Ready for final owner review.',
       iterations: project.iteration,
-      readyAt: new Date().toISOString(),
+      readyAt: delivery.readyAt,
       verificationLevel: gate.verificationLevel,
       gate
     };
     project.verificationLevel = gate.verificationLevel;
-    await this.transition(project, ProjectState.READY_FOR_OWNER_REVIEW, 'Application passed autonomous development and release review', {
-      verificationLevel: gate.verificationLevel
+    await this.notifications.notifyReady(project, delivery);
+    if (project.state !== ProjectState.READY_FOR_OWNER_REVIEW) {
+      await this.transition(project, ProjectState.READY_FOR_OWNER_REVIEW, 'Delivery snapshot ready for owner review', {
+        verificationLevel: gate.verificationLevel,
+        deliveryId: delivery.id,
+        deliveryVersion: delivery.version
+      });
+    } else {
+      await this.store.save(project);
+    }
+    return project;
+  }
+
+  async applyOwnerFeedback(project) {
+    const pending = project.pendingOwnerFeedback;
+    if (!pending) return project;
+    const extra = [
+      'Owner feedback cycle. Do not restart product discovery from zero.',
+      `Original idea: ${project.idea}`,
+      `Current specification product: ${specProductName(project.council.discovery.spec)}`,
+      `Latest delivery: ${currentDelivery(project)?.id || 'none'}`,
+      `Owner feedback: ${pending.feedback}`,
+      'Interpret the feedback and determine the minimal coherent changes required.',
+      'Preserve architecture unless the feedback itself requires a change.'
+    ].join('\n');
+    try {
+      const result = await this.council.discover(project.idea, extra);
+      if (result?.spec?.cursorPrompt) {
+        project.council.discovery.spec.cursorPrompt = result.spec.cursorPrompt;
+      } else {
+        project.council.discovery.spec.cursorPrompt = `${project.council.discovery.spec.cursorPrompt}\n\nOwner feedback: ${pending.feedback}`;
+      }
+    } catch {
+      project.council.discovery.spec.cursorPrompt = `${project.council.discovery.spec.cursorPrompt}\n\nOwner feedback: ${pending.feedback}`;
+    }
+    project.activePrompt = project.council.discovery.spec.cursorPrompt;
+    project.pendingOwnerFeedback = null;
+    await this.store.save(project);
+    return project;
+  }
+
+  async approve(id) {
+    return withProjectLock(id, async () => {
+      const project = await this.store.get(id);
+      if (project.state !== ProjectState.READY_FOR_OWNER_REVIEW) {
+        throw new PlatformError({
+          code: ErrorCode.OWNER_DECISION_CONFLICT,
+          message: `Approve is only valid from READY_FOR_OWNER_REVIEW (current state: ${project.state})`,
+          phase: project.state,
+          retryable: false
+        });
+      }
+      const delivery = currentDelivery(project);
+      const review = recordOwnerDecision(project, { delivery, decision: OwnerDecision.APPROVED });
+      recordSecurityEvent(SecurityEventType.OWNER_APPROVED, { deliveryId: delivery.id, reviewId: review.id }, { store: this.store });
+      await this.transition(project, ProjectState.OWNER_APPROVED, 'Owner accepted this autonomous-development result', {
+        deliveryId: delivery.id,
+        reviewId: review.id
+      });
+      await this.transition(await this.store.get(id), ProjectState.DONE, 'Project completed', {
+        deliveryId: delivery.id,
+        reviewId: review.id
+      });
+      return this.store.get(id);
+    });
+  }
+
+  async requestChanges(id, feedback) {
+    return withProjectLock(id, async () => {
+      const project = await this.store.get(id);
+      if (project.state !== ProjectState.READY_FOR_OWNER_REVIEW) {
+        throw new PlatformError({
+          code: ErrorCode.OWNER_DECISION_CONFLICT,
+          message: `Request Changes is only valid from READY_FOR_OWNER_REVIEW (current state: ${project.state})`,
+          phase: project.state,
+          retryable: false
+        });
+      }
+      const delivery = currentDelivery(project);
+      const review = recordOwnerDecision(project, { delivery, decision: OwnerDecision.CHANGES_REQUESTED, feedback });
+      recordSecurityEvent(SecurityEventType.OWNER_CHANGES_REQUESTED, { deliveryId: delivery.id, reviewId: review.id }, { store: this.store });
+      await this.transition(project, ProjectState.OWNER_CHANGES_REQUESTED, 'Owner requested changes', {
+        deliveryId: delivery.id,
+        reviewId: review.id
+      });
+      await this.transition(await this.store.get(id), ProjectState.COUNCIL_DISCOVERY, 'Autonomous correction cycle started from owner feedback');
+      const updated = await this.store.get(id);
+      if (this.queue) await this.queue.enqueue(updated);
+      else this.start(id);
+      return updated;
     });
   }
 }
@@ -984,6 +1145,9 @@ export function resumeTargetAfterFailure(project) {
   if (completed && !project.council[`review${completed.iteration}`]) return ProjectState.COUNCIL_REVIEW;
   if (completed && project.council[`review${completed.iteration}`]?.decision?.decision === 'COMPLETE' && !project.council.final) {
     return ProjectState.FINAL_VERIFICATION;
+  }
+  if (completed && project.council.final?.decision?.decision === 'COMPLETE' && !currentDelivery(project)) {
+    return ProjectState.DELIVERY_PREPARATION;
   }
   return ProjectState.SPECIFICATION_READY;
 }
